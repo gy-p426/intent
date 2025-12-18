@@ -1,0 +1,26 @@
+# Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Vector Search and Embeddings
+sentence-transformers==2.2.2
+faiss-cpu==1.7.4
+huggingface_hub==0.19.4
+
+# LLM Integration (Volcengine Ark Runtime)
+# 注意: 如果安装失败，可以注释掉这行，系统会自动使用模拟客户端
+"volcengine-python-sdk[ark]"
+
+# Service Discovery
+nacos-sdk-python==3.0.0
+
+# Configuration Management
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+
+# Utilities
+numpy==1.24.3
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1

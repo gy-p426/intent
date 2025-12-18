@@ -1,0 +1,568 @@
+{
+  "algorithms": {
+    "cluster": {
+      "name": "聚类分析 (K-Means)",
+      "description": "执行K-Means聚类算法，将数据按相似性分组，用于客户分群、产品分类等",
+      "api_endpoint": "/clustering/kmeans",
+      "method": "POST",
+      "required_fields": [
+        {
+          "field": "data_rows",
+          "type": "array",
+          "description": "待聚类的数据行，每行包含ID和特征值"
+        },
+        {
+          "field": "id_column",
+          "type": "string",
+          "description": "数据行中的ID列名"
+        },
+        {
+          "field": "feature_columns",
+          "type": "array",
+          "description": "用于聚类的特征列名集合"
+        }
+      ],
+      "optional_fields": [
+        {
+          "field": "k_value",
+          "type": "integer",
+          "default": null,
+          "description": "聚类数量，null时自动使用手肘法计算最佳K值"
+        }
+      ],
+      "data_format": "tabular",
+      "sql_template": "SELECT {id_column}, {feature_columns} FROM {table_name} WHERE {conditions}",
+      "payload_structure": {
+        "data_rows": "从SQL查询获取的数据行",
+        "config": {
+          "id_column": "ID列名",
+          "feature_columns": "特征列名数组",
+          "k_value": "聚类数量或null"
+        }
+      },
+      "examples": [
+        "将消费者按购买偏好分组",
+        "将客户按消费行为进行分组",
+        "根据用户特征自动分群"
+      ]
+    },
+    "classify": {
+      "name": "智能分类预测 (Auto-Routing)",
+      "description": "智能路由分类接口，根据数据量自动选择XGBoost(小数据同步)或TabNet(大数据异步)算法",
+      "api_endpoint": "/classification/predict",
+      "method": "POST",
+      "required_fields": [
+        {
+          "field": "data_rows",
+          "type": "array",
+          "description": "待预测的新数据行，不含标签"
+        },
+        {
+          "field": "data_sets",
+          "type": "array",
+          "description": "用于训练的历史数据，含标签"
+        },
+        {
+          "field": "id_column",
+          "type": "string",
+          "description": "数据行中的ID列名"
+        },
+        {
+          "field": "feature_columns",
+          "type": "array",
+          "description": "用于分类的特征列名集合"
+        },
+        {
+          "field": "target_column",
+          "type": "string",
+          "description": "分类目标列名(标签列)"
+        }
+      ],
+      "optional_fields": [
+        {
+          "field": "categorical_columns",
+          "type": "array",
+          "default": [],
+          "description": "类别型特征列名，用于自动编码"
+        },
+        {
+          "field": "algorithm",
+          "type": "string",
+          "default": null,
+          "options": ["xgboost", "tabnet", null],
+          "description": "指定算法类型，null时自动根据数据量选择"
+        }
+      ],
+      "data_format": "tabular",
+      "sql_template_predict": "SELECT {id_column}, {feature_columns} FROM {table_name} WHERE {conditions}",
+      "sql_template_train": "SELECT {id_column}, {feature_columns}, {target_column} FROM {table_name} WHERE {conditions}",
+      "payload_structure": {
+        "data_rows": "待预测数据(从predict SQL获取)",
+        "data_sets": "训练数据(从train SQL获取)",
+        "config": {
+          "id_column": "ID列名",
+          "feature_columns": "特征列名数组",
+          "categorical_columns": "类别列名数组",
+          "target_column": "目标列名",
+          "algorithm": "算法选择"
+        }
+      },
+      "response_modes": {
+        "sync": "小数据量使用XGBoost同步返回结果",
+        "async": "大数据量使用TabNet异步处理，返回task_id"
+      },
+      "examples": [
+        "判断邮件是否为垃圾邮件",
+        "预测客户是否会流失",
+        "泰坦尼克号乘客生存预测"
+      ]
+    },
+    "predict": {
+      "name": "预测分析",
+      "description": "基于历史数据预测未来趋势，用于销售预测、故障预测等",
+      "required_fields": [
+        {
+          "field": "target_column",
+          "type": "string",
+          "description": "预测目标列"
+        },
+        {
+          "field": "feature_columns",
+          "type": "array",
+          "description": "预测特征列"
+        },
+        {
+          "field": "time_column",
+          "type": "string",
+          "description": "时间列"
+        }
+      ],
+      "optional_fields": [
+        {
+          "field": "prediction_horizon",
+          "type": "integer",
+          "default": 30,
+          "description": "预测时间范围（天）"
+        },
+        {
+          "field": "model_type",
+          "type": "string",
+          "default": "arima",
+          "options": ["arima", "lstm", "prophet", "linear_regression"],
+          "description": "预测模型类型"
+        }
+      ],
+      "data_format": "time_series",
+      "sql_template": "SELECT {time_column}, {feature_columns}, {target_column} FROM {table_name} WHERE {time_conditions} ORDER BY {time_column}",
+      "examples": [
+        "预测设备故障概率",
+        "预测下个月的销售额",
+        "预测股票价格走势"
+      ]
+    },
+    "anomaly": {
+      "name": "异常检测",
+      "description": "识别数据中的异常点或异常模式，用于欺诈检测、设备故障等",
+      "required_fields": [
+        {
+          "field": "feature_columns",
+          "type": "array",
+          "description": "用于异常检测的特征列"
+        }
+      ],
+      "optional_fields": [
+        {
+          "field": "threshold",
+          "type": "float",
+          "default": 0.05,
+          "description": "异常阈值，异常比例"
+        },
+        {
+          "field": "detection_method",
+          "type": "string",
+          "default": "isolation_forest",
+          "options": ["isolation_forest", "one_class_svm", "local_outlier_factor"],
+          "description": "异常检测方法"
+        }
+      ],
+      "data_format": "tabular",
+      "sql_template": "SELECT {feature_columns} FROM {table_name} WHERE {conditions}",
+      "examples": [
+        "检测交易数据中的异常点",
+        "找出销售数据中的异常波动",
+        "识别网络流量中的异常行为"
+      ]
+    },
+    "associate": {
+      "name": "关联分析",
+      "description": "发现数据项之间的关联规则，用于购物篮分析、推荐系统等",
+      "required_fields": [
+        {
+          "field": "transaction_column",
+          "type": "string",
+          "description": "交易或会话ID列"
+        },
+        {
+          "field": "item_column",
+          "type": "string",
+          "description": "项目或商品列"
+        }
+      ],
+      "optional_fields": [
+        {
+          "field": "min_support",
+          "type": "float",
+          "default": 0.01,
+          "description": "最小支持度"
+        },
+        {
+          "field": "min_confidence",
+          "type": "float",
+          "default": 0.5,
+          "description": "最小置信度"
+        }
+      ],
+      "data_format": "transactional",
+      "sql_template": "SELECT {transaction_column}, {item_column} FROM {table_name} WHERE {conditions}",
+      "examples": [
+        "分析购买商品的关联关系",
+        "找出经常一起购买的产品组合",
+        "挖掘用户行为序列模式"
+      ]
+    },
+    "compare": {
+      "name": "对比分析",
+      "description": "比较不同组别或时期的数据差异，用于A/B测试、业绩对比等",
+      "required_fields": [
+        {
+          "field": "metric_columns",
+          "type": "array",
+          "description": "对比指标列"
+        },
+        {
+          "field": "group_column",
+          "type": "string",
+          "description": "分组列"
+        }
+      ],
+      "optional_fields": [
+        {
+          "field": "comparison_type",
+          "type": "string",
+          "default": "statistical",
+          "options": ["statistical", "percentage", "absolute"],
+          "description": "对比类型"
+        },
+        {
+          "field": "statistical_test",
+          "type": "string",
+          "default": "t_test",
+          "options": ["t_test", "chi_square", "anova"],
+          "description": "统计检验方法"
+        }
+      ],
+      "data_format": "tabular",
+      "sql_template": "SELECT {group_column}, {metric_columns} FROM {table_name} WHERE {conditions} GROUP BY {group_column}",
+      "examples": [
+        "对比两个季度的销售业绩",
+        "分析不同地区用户行为差异",
+        "比较新旧版本产品性能"
+      ]
+    },
+    "similarity": {
+      "name": "相似度分析",
+      "description": "计算实体间的相似程度，用于推荐系统、文本匹配等",
+      "required_fields": [
+        {
+          "field": "entity_column",
+          "type": "string",
+          "description": "实体标识列"
+        },
+        {
+          "field": "feature_columns",
+          "type": "array",
+          "description": "用于计算相似度的特征列"
+        }
+      ],
+      "optional_fields": [
+        {
+          "field": "similarity_metric",
+          "type": "string",
+          "default": "cosine",
+          "options": ["cosine", "jaccard", "euclidean", "pearson"],
+          "description": "相似度度量方法"
+        },
+        {
+          "field": "threshold",
+          "type": "float",
+          "default": 0.7,
+          "description": "相似度阈值"
+        }
+      ],
+      "data_format": "tabular",
+      "sql_template": "SELECT {entity_column}, {feature_columns} FROM {table_name} WHERE {conditions}",
+      "examples": [
+        "计算两条曲线的相似度",
+        "判断两篇文章的相似程度",
+        "分析用户行为模式的相似性"
+      ]
+    },
+    "trend": {
+      "name": "趋势分析",
+      "description": "分析数据的时间趋势和季节性模式，用于市场分析、预测等",
+      "required_fields": [
+        {
+          "field": "time_column",
+          "type": "string",
+          "description": "时间列"
+        },
+        {
+          "field": "metric_column",
+          "type": "string",
+          "description": "分析指标列"
+        }
+      ],
+      "optional_fields": [
+        {
+          "field": "trend_method",
+          "type": "string",
+          "default": "linear",
+          "options": ["linear", "polynomial", "seasonal_decompose"],
+          "description": "趋势分析方法"
+        },
+        {
+          "field": "seasonality",
+          "type": "string",
+          "default": "auto",
+          "options": ["auto", "daily", "weekly", "monthly", "yearly"],
+          "description": "季节性周期"
+        }
+      ],
+      "data_format": "time_series",
+      "sql_template": "SELECT {time_column}, {metric_column} FROM {table_name} WHERE {time_conditions} ORDER BY {time_column}",
+      "examples": [
+        "分析销售数据的趋势变化",
+        "预测市场需求的长期趋势",
+        "识别股价的上升下降趋势"
+      ]
+    },
+    "profile": {
+      "name": "用户画像",
+      "description": "基于多维数据构建实体特征画像，用于客户分析、个性化服务等",
+      "required_fields": [
+        {
+          "field": "entity_column",
+          "type": "string",
+          "description": "实体标识列（如用户ID）"
+        },
+        {
+          "field": "feature_columns",
+          "type": "array",
+          "description": "画像特征列"
+        }
+      ],
+      "optional_fields": [
+        {
+          "field": "profile_depth",
+          "type": "string",
+          "default": "comprehensive",
+          "options": ["basic", "comprehensive", "detailed"],
+          "description": "画像详细程度"
+        },
+        {
+          "field": "aggregation_methods",
+          "type": "array",
+          "default": ["mean", "count", "max"],
+          "description": "特征聚合方法"
+        }
+      ],
+      "data_format": "tabular",
+      "sql_template": "SELECT {entity_column}, {feature_columns} FROM {table_name} WHERE {conditions} GROUP BY {entity_column}",
+      "examples": [
+        "基于交易数据生成用户画像",
+        "分析用户兴趣标签",
+        "构建客户360度视图"
+      ]
+    },
+    "causality": {
+      "name": "因果分析",
+      "description": "分析变量间的因果关系，用于根因分析、影响因素识别等",
+      "required_fields": [
+        {
+          "field": "cause_columns",
+          "type": "array",
+          "description": "原因变量列"
+        },
+        {
+          "field": "effect_column",
+          "type": "string",
+          "description": "结果变量列"
+        }
+      ],
+      "optional_fields": [
+        {
+          "field": "causal_method",
+          "type": "string",
+          "default": "granger",
+          "options": ["granger", "correlation", "regression"],
+          "description": "因果分析方法"
+        },
+        {
+          "field": "lag_periods",
+          "type": "integer",
+          "default": 1,
+          "description": "滞后期数"
+        }
+      ],
+      "data_format": "tabular",
+      "sql_template": "SELECT {cause_columns}, {effect_column} FROM {table_name} WHERE {conditions}",
+      "examples": [
+        "分析销量下降的原因",
+        "找出客户流失的根本原因",
+        "诊断设备故障的因果关系"
+      ]
+    },
+    "alert": {
+      "name": "预警系统",
+      "description": "基于阈值或模式的实时监控预警，用于风险管控、异常提醒等",
+      "required_fields": [
+        {
+          "field": "metric_column",
+          "type": "string",
+          "description": "监控指标列"
+        },
+        {
+          "field": "threshold_value",
+          "type": "number",
+          "description": "预警阈值"
+        }
+      ],
+      "optional_fields": [
+        {
+          "field": "alert_type",
+          "type": "string",
+          "default": "threshold",
+          "options": ["threshold", "trend", "anomaly"],
+          "description": "预警类型"
+        },
+        {
+          "field": "notification_method",
+          "type": "string",
+          "default": "email",
+          "options": ["email", "sms", "webhook"],
+          "description": "通知方式"
+        }
+      ],
+      "data_format": "real_time",
+      "sql_template": "SELECT {metric_column} FROM {table_name} WHERE {metric_column} {operator} {threshold_value}",
+      "examples": [
+        "当库存低于阈值时发出预警",
+        "监控系统异常并实时报警",
+        "设置财务风险预警机制"
+      ]
+    },
+    "recommend": {
+      "name": "推荐系统",
+      "description": "基于用户行为和偏好提供个性化推荐，用于产品推荐、内容推荐等",
+      "required_fields": [
+        {
+          "field": "user_column",
+          "type": "string",
+          "description": "用户标识列"
+        },
+        {
+          "field": "item_column",
+          "type": "string",
+          "description": "物品标识列"
+        }
+      ],
+      "optional_fields": [
+        {
+          "field": "rating_column",
+          "type": "string",
+          "description": "评分或交互强度列"
+        },
+        {
+          "field": "recommendation_type",
+          "type": "string",
+          "default": "collaborative",
+          "options": ["collaborative", "content_based", "hybrid"],
+          "description": "推荐算法类型"
+        },
+        {
+          "field": "top_k",
+          "type": "integer",
+          "default": 10,
+          "description": "推荐数量"
+        }
+      ],
+      "data_format": "tabular",
+      "sql_template": "SELECT {user_column}, {item_column}, {rating_column} FROM {table_name} WHERE {conditions}",
+      "examples": [
+        "根据分析结果提供优化建议",
+        "基于用户行为推荐产品",
+        "针对故障原因给出维修建议"
+      ]
+    },
+    "task_query": {
+      "name": "异步任务结果查询",
+      "description": "查询TabNet异步分类任务的训练进度或最终结果",
+      "api_endpoint": "/classification/task/{task_id}",
+      "method": "GET",
+      "required_fields": [
+        {
+          "field": "task_id",
+          "type": "string",
+          "description": "异步任务的UUID标识符"
+        }
+      ],
+      "optional_fields": [],
+      "data_format": "none",
+      "sql_template": "无需SQL查询，直接使用task_id",
+      "response_states": {
+        "processing": "训练中，返回实时训练日志",
+        "success": "训练完成，返回预测结果",
+        "failed": "训练失败，返回错误信息"
+      },
+      "examples": [
+        "查询大数据分类任务的训练进度",
+        "获取TabNet模型的最终预测结果",
+        "检查异步任务是否完成"
+      ]
+    }
+  },
+  "metadata": {
+    "version": "1.1",
+    "last_updated": "2024-12-17",
+    "supported_data_formats": [
+      "tabular",
+      "time_series", 
+      "transactional",
+      "real_time",
+      "none"
+    ],
+    "common_operators": [
+      "=", "!=", ">", "<", ">=", "<=", "IN", "NOT IN", "LIKE", "BETWEEN"
+    ],
+    "api_info": {
+      "clustering_service": {
+        "base_url": "聚类服务基础URL",
+        "endpoints": {
+          "kmeans": "/clustering/kmeans"
+        }
+      },
+      "classification_service": {
+        "base_url": "分类服务基础URL", 
+        "endpoints": {
+          "predict": "/classification/predict",
+          "task_query": "/classification/task/{task_id}"
+        }
+      }
+    },
+    "data_examples": {
+      "titanic": "泰坦尼克号乘客生存预测数据集",
+      "adult": "成人收入预测数据集",
+      "rfm": "客户RFM聚类分析数据集"
+    }
+  }
+}
