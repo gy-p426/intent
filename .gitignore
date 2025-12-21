@@ -2,3 +2,5 @@
 models/
 .env
 文档/
+tests/
+.vscode/
