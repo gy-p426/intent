@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from api.app import api_app
 from infrastructure.config import get_settings
 from infrastructure.logging_config import setup_logging, get_logger
-from infrastructure.nacos_registration import NacosRegistration
+from infrastructure.service_registry import get_service_registry_manager
 from services.intent_recognition_service import IntentRecognitionService
 from rag.rag_module import RAGModule
 from rag.knowledge_base_loader import KnowledgeBaseLoader
@@ -17,6 +17,17 @@ from rag.embedding_service import EmbeddingService
 from rag.vector_store import VectorStore
 from llm.llm_module import LLMModule
 from llm.llm_client import LLMClient
+from llm.algorithm_llm_module import AlgorithmLLMModule
+
+# Algorithm Integration Service imports
+from algorithm.service import AlgorithmIntegrationService
+from algorithm.router.algorithm_router import AlgorithmRouter
+from algorithm.extractor.parameter_extractor import ParameterExtractor
+from algorithm.clients.nl2sql_client import NL2SQLClient
+from algorithm.executor.algorithm_executor import AlgorithmExecutor
+from algorithm.streaming.streaming_handler import StreamingResponseHandler
+from algorithm.tasks.task_manager import TaskManager
+from algorithm.processors.data_processor import DataProcessor
 
 
 @asynccontextmanager
@@ -30,8 +41,8 @@ async def lifespan(app):
     logger = get_logger(__name__)
     
     # 启动时初始化
-    logger.info("正在启动意图识别服务...")
-    nacos_client = None
+    logger.info("正在启动算法集成服务...")
+    service_registry = get_service_registry_manager()
     
     try:
         logger.info(f"服务配置加载完成: {settings.service_name}:{settings.service_port}")
@@ -62,24 +73,77 @@ async def lifespan(app):
         intent_service = IntentRecognitionService(rag_module, llm_module)
         api_app.set_intent_service(intent_service)
         
-        # 初始化Nacos注册
-        logger.info("初始化Nacos服务注册...")
-        nacos_client = NacosRegistration(
-            server_addr=settings.nacos_server_addr,
-            service_name=settings.service_name,
-            service_port=settings.service_port,
-            namespace=settings.nacos_namespace
+        # 初始化算法集成服务
+        logger.info("初始化算法集成服务...")
+        
+        # 初始化算法专用LLM模块
+        logger.info("初始化算法LLM模块...")
+        algorithm_llm_module = AlgorithmLLMModule(llm_client)
+        logger.info("算法LLM模块初始化完成")
+        
+        # 初始化配置管理器
+        logger.info("初始化配置管理器...")
+        from algorithm.config_manager import get_algorithm_config_manager
+        config_manager = get_algorithm_config_manager()
+        logger.info("配置管理器初始化完成")
+        
+        # 初始化各个组件
+        logger.info("初始化任务管理器...")
+        task_manager = TaskManager()
+        logger.info("初始化数据处理器...")
+        data_processor = DataProcessor()
+        logger.info("初始化流式处理器...")
+        streaming_handler = StreamingResponseHandler()
+        
+        logger.info("初始化算法路由器...")
+        algorithm_router = AlgorithmRouter(intent_service, config_manager)
+        logger.info("初始化参数提取器...")
+        parameter_extractor = ParameterExtractor(llm_client, config_manager)
+        logger.info("初始化NL2SQL客户端...")
+        nl2sql_client = NL2SQLClient(
+            base_url=settings.nl2sql_base_url,
+            timeout=settings.nl2sql_timeout
+        )
+        logger.info("初始化算法执行器...")
+        algorithm_executor = AlgorithmExecutor(
+            algorithm_apis={
+                'clustering': settings.clustering_api_url,
+                'classification': settings.classification_api_url
+            },
+            task_manager=task_manager
+        )
+        logger.info("所有组件初始化完成")
+        
+        # 创建算法集成服务
+        algorithm_service = AlgorithmIntegrationService(
+            router=algorithm_router,
+            parameter_extractor=parameter_extractor,
+            nl2sql_client=nl2sql_client,
+            algorithm_executor=algorithm_executor,
+            streaming_handler=streaming_handler,
+            task_manager=task_manager,
+            data_processor=data_processor,
+            config_manager=config_manager
         )
         
-        # 注册服务到Nacos
-        registration_success = await nacos_client.register()
-        if registration_success:
-            api_app.set_nacos_client(nacos_client)
-            logger.info("Nacos服务注册成功")
-        else:
-            logger.warning("Nacos服务注册失败，服务将继续运行但无法被发现")
+        # 初始化算法服务
+        await algorithm_service.initialize()
         
-        logger.info("意图识别服务启动完成")
+        # 注入到API应用
+        api_app.set_algorithm_service(algorithm_service)
+        
+        logger.info("算法集成服务初始化完成")
+        
+        # 初始化服务注册管理器
+        logger.info("初始化服务注册管理器...")
+        registration_success = await service_registry.initialize()
+        if registration_success:
+            api_app.set_service_registry(service_registry)
+            logger.info("服务注册管理器初始化成功")
+        else:
+            logger.warning("服务注册管理器初始化失败，服务将继续运行但无法被发现")
+        
+        logger.info("算法集成服务启动完成")
         
         yield
         
@@ -88,19 +152,25 @@ async def lifespan(app):
         raise
     
     # 关闭时清理
-    logger.info("正在关闭意图识别服务...")
+    logger.info("正在关闭算法集成服务...")
     
     try:
-        # 注销Nacos服务
-        if nacos_client and nacos_client.is_registered():
-            logger.info("正在从Nacos注销服务...")
-            deregistration_success = await nacos_client.deregister()
-            if deregistration_success:
-                logger.info("Nacos服务注销成功")
-            else:
-                logger.warning("Nacos服务注销失败")
+        # 关闭服务注册管理器
+        if service_registry.is_running():
+            logger.info("正在关闭服务注册管理器...")
+            await service_registry.shutdown()
+            logger.info("服务注册管理器已关闭")
         
-        logger.info("意图识别服务已关闭")
+        # 清理算法集成服务
+        if hasattr(api_app, '_algorithm_service'):
+            logger.info("正在清理算法集成服务...")
+            try:
+                await api_app._algorithm_service.cleanup()
+                logger.info("算法集成服务清理完成")
+            except Exception as e:
+                logger.error(f"算法集成服务清理失败: {str(e)}", exc_info=True)
+        
+        logger.info("算法集成服务已关闭")
         
     except Exception as e:
         logger.error(f"服务关闭时发生错误: {str(e)}", exc_info=True)

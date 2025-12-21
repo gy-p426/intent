@@ -1,13 +1,15 @@
 """
 API数据模型定义
 
-定义了意图识别服务的所有API请求和响应模型，包括：
+定义了意图识别服务和算法集成服务的所有API请求和响应模型，包括：
 - IntentEntry: 知识库条目
 - IntentCandidate: 检索候选结果
 - IntentRecognitionRequest: API请求模型
 - IntentRecognitionResponse: API响应模型
 - IntentResult: 意图识别结果
 - HealthCheckResponse: 健康检查响应模型
+- AlgorithmRequest: 算法请求模型
+- AlgorithmStreamResponse: 算法流式响应模型
 """
 
 from typing import List, Optional, Dict, Any
@@ -58,3 +60,21 @@ class ErrorResponse(BaseModel):
     code: int  # 错误状态码
     message: str  # 错误消息
     data: Optional[Any] = None  # 错误详情
+
+
+# Algorithm Integration API Models
+class AlgorithmRequest(BaseModel):
+    """算法请求模型"""
+    question: str = Field(..., min_length=1, max_length=1000, description="用户自然语言查询")
+    window_id: str = Field(default="default", description="窗口ID")
+    session_id: str = Field(..., description="会话ID")
+    stream: bool = Field(default=True, description="是否流式返回")
+
+
+class AlgorithmStreamResponse(BaseModel):
+    """算法流式响应模型"""
+    step: str = Field(..., description="当前执行步骤")
+    status: str = Field(..., description="状态: processing/completed/error")
+    data: Optional[Dict[str, Any]] = Field(None, description="步骤数据")
+    error: Optional[str] = Field(None, description="错误信息")
+    timestamp: str = Field(..., description="时间戳")

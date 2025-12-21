@@ -41,7 +41,7 @@ class LLMClient:
     async def chat_completion(self, messages: List[Dict[str, str]]) -> str:
         """
         调用大模型API
-        支持重试机制：最多重试max_retries次，每次间隔retry_delay秒
+        支持重试机制：最多重试 max_retries 次，每次间隔retry_delay秒
         
         Args:
             messages: 对话消息列表，格式: [{"role": "system/user/assistant", "content": "..."}]
@@ -56,7 +56,7 @@ class LLMClient:
             try:
                 logger.debug(f"Calling LLM API (attempt {attempt + 1}/{self.max_retries})")
                 
-                # 调用豆包API
+                # 调用API
                 response = await asyncio.to_thread(
                     self._sync_chat_completion,
                     messages

@@ -1,35 +1,103 @@
 version: '3.8'
 
 services:
-  # 定义intent-recognition服务，构建Dockerfile
-  intent-recognition:
+  # 定义algorithm-integration服务，构建Dockerfile
+  algorithm-integration:
     build: .
     ports:
       - "8000:8000"
-    # 配置环境变量：NACOS_SERVER_ADDR, ARK_API_KEY, ARK_MODEL, LOG_LEVEL
+    # 配置环境变量：基础服务配置
     environment:
+      # 基础服务配置
       - NACOS_SERVER_ADDR=nacos:8848
       - NACOS_NAMESPACE=public
-      - SERVICE_NAME=intent-recognition-service
+      - SERVICE_NAME=algorithm-integration-service
       - SERVICE_PORT=8000
+      
+      # LLM配置
       - ARK_API_KEY=${ARK_API_KEY}
-      - ARK_MODEL=${ARK_MODEL:-doubao-seed-1.6-250615}
+      - ARK_MODEL=${ARK_MODEL:-deepseek-v3-2-251201}
       - ARK_TIMEOUT=60
+      - LLM_MAX_RETRIES=3
+      - LLM_RETRY_DELAY=2
+      
+      # 向量模型配置
       - EMBEDDING_MODEL=shibing624/text2vec-base-chinese
       - KNOWLEDGE_BASE_PATH=intent.txt
       - RAG_TOP_K=20
+      
+      # 日志配置
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - LLM_MAX_RETRIES=3
-      - LLM_RETRY_DELAY=2
-    # 挂载intent.txt文件到容器
+      
+      # 算法服务配置
+      - ALGORITHM_CONFIG_PATH=algorithm_input.json
+      - ALGORITHM_CONFIG_HOT_RELOAD=true
+      - ALGORITHM_CONFIG_RELOAD_INTERVAL=60
+      
+      # NL2SQL服务配置
+      - NL2SQL_BASE_URL=${NL2SQL_BASE_URL:-http://nl2sql-service:8080}
+      - NL2SQL_TIMEOUT=30
+      - NL2SQL_MAX_RETRIES=3
+      - NL2SQL_RETRY_DELAY=2
+      
+      # 算法API配置
+      - CLUSTERING_API_URL=${CLUSTERING_API_URL:-http://clustering-service:8001}
+      - CLASSIFICATION_API_URL=${CLASSIFICATION_API_URL:-http://classification-service:8002}
+      - PREDICTION_API_URL=${PREDICTION_API_URL:-http://prediction-service:8003}
+      - ANOMALY_API_URL=${ANOMALY_API_URL:-http://anomaly-service:8004}
+      - ALGORITHM_API_TIMEOUT=60
+      - ALGORITHM_API_MAX_RETRIES=3
+      - ALGORITHM_API_RETRY_DELAY=2
+      
+      # 异步任务配置
+      - ASYNC_TASK_POLL_INTERVAL=5
+      - ASYNC_TASK_MAX_WAIT_TIME=300
+      - ASYNC_TASK_MAX_CONCURRENT=10
+      
+      # 流式响应配置
+      - STREAM_CHUNK_SIZE=1024
+      - STREAM_TIMEOUT=120
+      - STREAM_BUFFER_SIZE=8192
+      
+      # 健康检查配置
+      - HEALTH_CHECK_INTERVAL=30
+      - HEALTH_CHECK_TIMEOUT=5
+      
+      # 缓存配置
+      - CACHE_ENABLED=true
+      - CACHE_TTL=300
+      - CACHE_MAX_SIZE=1000
+      
+      # 数据库配置
+      - MYSQL_HOST=${MYSQL_HOST:-mysql}
+      - MYSQL_PORT=${MYSQL_PORT:-3306}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-nl2sql}
+      - MYSQL_USERNAME=${MYSQL_USERNAME:-root}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-root}
+    
+    # 挂载配置文件到容器
     volumes:
       - ./intent.txt:/app/intent.txt:ro
+      - ./algorithm_input.json:/app/algorithm_input.json:ro
+      - ./logs:/app/logs
+    
     depends_on:
       - nacos
+      - mysql
+    
     # 配置网络
     networks:
       - microservices
+    
     restart: unless-stopped
+    
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # 定义nacos服务，使用nacos/nacos-server:v2.2.3镜像
   nacos:
@@ -46,12 +114,46 @@ services:
     networks:
       - microservices
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/v1/ns/operator/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MySQL数据库服务（用于NL2SQL和表结构信息）
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD:-root}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-nl2sql}
+      - MYSQL_USER=${MYSQL_USERNAME:-app}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-root}
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    networks:
+      - microservices
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: --default-authentication-plugin=mysql_native_password
 
 # 配置网络
 networks:
   microservices:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
 
 # 配置数据卷
 volumes:
   nacos-data:
+    driver: local
+  mysql-data:
+    driver: local

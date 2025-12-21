@@ -89,7 +89,7 @@
           "field": "algorithm",
           "type": "string",
           "default": null,
-          "options": ["xgboost", "tabnet", null],
+          "options": ["xgboost", "tabnet", "null"],
           "description": "指定算法类型，null时自动根据数据量选择"
         }
       ],
@@ -120,6 +120,8 @@
     "predict": {
       "name": "预测分析",
       "description": "基于历史数据预测未来趋势，用于销售预测、故障预测等",
+      "api_endpoint": "/prediction/forecast",
+      "method": "POST",
       "required_fields": [
         {
           "field": "target_column",
@@ -163,6 +165,8 @@
     "anomaly": {
       "name": "异常检测",
       "description": "识别数据中的异常点或异常模式，用于欺诈检测、设备故障等",
+      "api_endpoint": "/anomaly/detect",
+      "method": "POST",
       "required_fields": [
         {
           "field": "feature_columns",
@@ -196,6 +200,8 @@
     "associate": {
       "name": "关联分析",
       "description": "发现数据项之间的关联规则，用于购物篮分析、推荐系统等",
+      "api_endpoint": "/association/rules",
+      "method": "POST",
       "required_fields": [
         {
           "field": "transaction_column",
@@ -233,6 +239,8 @@
     "compare": {
       "name": "对比分析",
       "description": "比较不同组别或时期的数据差异，用于A/B测试、业绩对比等",
+      "api_endpoint": "/comparison/analyze",
+      "method": "POST",
       "required_fields": [
         {
           "field": "metric_columns",
@@ -272,6 +280,8 @@
     "similarity": {
       "name": "相似度分析",
       "description": "计算实体间的相似程度，用于推荐系统、文本匹配等",
+      "api_endpoint": "/similarity/calculate",
+      "method": "POST",
       "required_fields": [
         {
           "field": "entity_column",
@@ -310,6 +320,8 @@
     "trend": {
       "name": "趋势分析",
       "description": "分析数据的时间趋势和季节性模式，用于市场分析、预测等",
+      "api_endpoint": "/trend/analyze",
+      "method": "POST",
       "required_fields": [
         {
           "field": "time_column",
@@ -349,6 +361,8 @@
     "profile": {
       "name": "用户画像",
       "description": "基于多维数据构建实体特征画像，用于客户分析、个性化服务等",
+      "api_endpoint": "/profile/build",
+      "method": "POST",
       "required_fields": [
         {
           "field": "entity_column",
@@ -387,6 +401,8 @@
     "causality": {
       "name": "因果分析",
       "description": "分析变量间的因果关系，用于根因分析、影响因素识别等",
+      "api_endpoint": "/causality/analyze",
+      "method": "POST",
       "required_fields": [
         {
           "field": "cause_columns",
@@ -425,6 +441,8 @@
     "alert": {
       "name": "预警系统",
       "description": "基于阈值或模式的实时监控预警，用于风险管控、异常提醒等",
+      "api_endpoint": "/alert/monitor",
+      "method": "POST",
       "required_fields": [
         {
           "field": "metric_column",
@@ -464,6 +482,8 @@
     "recommend": {
       "name": "推荐系统",
       "description": "基于用户行为和偏好提供个性化推荐，用于产品推荐、内容推荐等",
+      "api_endpoint": "/recommendation/generate",
+      "method": "POST",
       "required_fields": [
         {
           "field": "user_column",

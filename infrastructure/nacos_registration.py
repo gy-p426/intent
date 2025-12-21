@@ -43,7 +43,7 @@ class NacosRegistration:
         self.client_config = (ClientConfigBuilder()
                              .server_address(server_addr)
                              .namespace_id(namespace)
-                             .log_level('INFO')
+                             .log_level('ERROR')  # 设置为ERROR级别，减少gRPC调试日志
                              .grpc_config(GRPCConfig(grpc_timeout=5000))
                              .build())
         
@@ -67,6 +67,83 @@ class NacosRegistration:
         except Exception as e:
             self.logger.warning(f"无法自动获取IP地址，使用默认值: {str(e)}")
             return "127.0.0.1"
+    
+    def _build_service_metadata(self) -> dict:
+        """
+        构建服务元数据
+        
+        Returns:
+            dict: 服务元数据字典
+        """
+        from infrastructure.config import get_settings
+        
+        try:
+            settings = get_settings()
+            
+            # 基础元数据
+            metadata = {
+                "version": "2.0.0",
+                "service_type": "algorithm-integration",
+                "framework": "fastapi",
+                "python_version": os.environ.get("PYTHON_VERSION", "3.11"),
+                "deployment_env": os.environ.get("DEPLOYMENT_ENV", "production")
+            }
+            
+            # 算法服务能力
+            try:
+                from algorithm.config_manager import get_algorithm_config_manager
+                config_manager = get_algorithm_config_manager()
+                
+                # 获取支持的算法类型
+                supported_algorithms = config_manager.get_supported_algorithms()
+                if supported_algorithms:
+                    metadata["supported_algorithms"] = ",".join(supported_algorithms)
+                    metadata["algorithms_count"] = str(len(supported_algorithms))
+                
+                # 配置版本
+                config_version = config_manager.get_config_version()
+                if config_version:
+                    metadata["algorithm_config_version"] = config_version
+                
+            except Exception as e:
+                self.logger.warning(f"无法获取算法配置信息: {str(e)}")
+            
+            # 服务特性
+            features = []
+            if settings.algorithm_config_hot_reload:
+                features.append("hot_reload")
+            if settings.cache_enabled:
+                features.append("caching")
+            features.append("streaming")
+            features.append("async_tasks")
+            
+            metadata["features"] = ",".join(features)
+            
+            # 依赖服务
+            dependencies = []
+            if settings.nl2sql_base_url:
+                dependencies.append("nl2sql")
+            if settings.clustering_api_url:
+                dependencies.append("clustering")
+            if settings.classification_api_url:
+                dependencies.append("classification")
+            
+            metadata["dependencies"] = ",".join(dependencies)
+            
+            # 性能配置
+            metadata["async_task_max_concurrent"] = str(settings.async_task_max_concurrent)
+            metadata["stream_enabled"] = "true"
+            
+            return metadata
+            
+        except Exception as e:
+            self.logger.error(f"构建服务元数据失败: {str(e)}")
+            # 返回基础元数据
+            return {
+                "version": "2.0.0",
+                "service_type": "algorithm-integration",
+                "framework": "fastapi"
+            }
     
     async def register(self) -> bool:
         """
@@ -94,11 +171,7 @@ class NacosRegistration:
                     port=self.service_port,
                     weight=1.0,
                     cluster_name='DEFAULT',
-                    metadata={
-                        "version": "1.0.0",
-                        "service_type": "intent-recognition",
-                        "framework": "fastapi"
-                    },
+                    metadata=self._build_service_metadata(),
                     enabled=True,
                     healthy=True,
                     ephemeral=True
@@ -254,6 +327,47 @@ class NacosRegistration:
         """
         return self._registered
     
+    async def update_service_metadata(self) -> bool:
+        """
+        更新服务元数据（重新注册以更新元数据）
+        
+        Returns:
+            bool: 更新是否成功
+        """
+        if not self._registered or self.client is None:
+            self.logger.warning("服务未注册，无法更新元数据")
+            return False
+        
+        try:
+            self.logger.info("正在更新服务元数据")
+            
+            # 重新注册以更新元数据
+            response = await self.client.register_instance(
+                request=RegisterInstanceParam(
+                    service_name=self.service_name,
+                    group_name='DEFAULT_GROUP',
+                    ip=self.ip,
+                    port=self.service_port,
+                    weight=1.0,
+                    cluster_name='DEFAULT',
+                    metadata=self._build_service_metadata(),
+                    enabled=True,
+                    healthy=True,
+                    ephemeral=True
+                )
+            )
+            
+            if response:
+                self.logger.info("服务元数据更新成功")
+                return True
+            else:
+                self.logger.error("服务元数据更新失败")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"更新服务元数据异常: {str(e)}")
+            return False
+    
     async def get_connection_status(self) -> dict:
         """
         获取Nacos连接状态
@@ -285,7 +399,8 @@ class NacosRegistration:
                 "status": "connected",
                 "server_addr": self.server_addr,
                 "namespace": self.namespace,
-                "registered": self._registered
+                "registered": self._registered,
+                "metadata": self._build_service_metadata()
             }
             
         except Exception as e:
@@ -295,4 +410,53 @@ class NacosRegistration:
                 "namespace": self.namespace,
                 "registered": False,
                 "error": str(e)
+            }
+    
+    async def get_service_health_info(self) -> dict:
+        """
+        获取服务健康信息
+        
+        Returns:
+            dict: 服务健康信息
+        """
+        try:
+            connection_status = await self.get_connection_status()
+            
+            health_info = {
+                "service_name": self.service_name,
+                "service_address": f"{self.ip}:{self.service_port}",
+                "nacos_connection": connection_status["status"],
+                "registered": self._registered,
+                "metadata": connection_status.get("metadata", {}),
+                "timestamp": asyncio.get_event_loop().time()
+            }
+            
+            # 如果已注册，获取实例健康状态
+            if self._registered:
+                instances = await self.get_service_instances()
+                current_instance = None
+                
+                for instance in instances:
+                    if instance.ip == self.ip and instance.port == self.service_port:
+                        current_instance = instance
+                        break
+                
+                if current_instance:
+                    health_info.update({
+                        "instance_healthy": current_instance.healthy,
+                        "instance_enabled": current_instance.enabled,
+                        "instance_weight": current_instance.weight,
+                        "cluster_name": current_instance.cluster_name
+                    })
+            
+            return health_info
+            
+        except Exception as e:
+            return {
+                "service_name": self.service_name,
+                "service_address": f"{self.ip}:{self.service_port}",
+                "nacos_connection": "error",
+                "registered": False,
+                "error": str(e),
+                "timestamp": asyncio.get_event_loop().time()
             }

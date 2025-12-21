@@ -1,10 +1,58 @@
 """
 日志配置模块
 配置Python logging模块，支持通过环境变量设置日志级别
+支持结构化日志记录和性能监控
 """
 import logging
 import sys
-from typing import Optional
+import json
+from typing import Optional, Dict, Any
+from datetime import datetime
+
+
+class StructuredFormatter(logging.Formatter):
+    """结构化日志格式化器"""
+    
+    def __init__(self, service_name: str = "algorithm-integration-service"):
+        super().__init__()
+        self.service_name = service_name
+    
+    def format(self, record: logging.LogRecord) -> str:
+        """格式化日志记录为JSON结构"""
+        # 检查是否已经是JSON格式的消息
+        try:
+            # 尝试解析消息是否为JSON
+            json.loads(record.getMessage())
+            # 如果是JSON，直接返回
+            return record.getMessage()
+        except (json.JSONDecodeError, ValueError):
+            # 如果不是JSON，创建结构化格式
+            log_entry = {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "level": record.levelname,
+                "message": record.getMessage(),
+                "service": self.service_name,
+                "logger": record.name,
+                "module": record.module,
+                "function": record.funcName,
+                "line": record.lineno
+            }
+            
+            # 添加异常信息
+            if record.exc_info:
+                log_entry["exception"] = self.formatException(record.exc_info)
+            
+            # 添加额外的上下文信息
+            if hasattr(record, 'context'):
+                log_entry["context"] = record.context
+            
+            if hasattr(record, 'trace_id'):
+                log_entry["trace_id"] = record.trace_id
+            
+            if hasattr(record, 'user_id'):
+                log_entry["user_id"] = record.user_id
+            
+            return json.dumps(log_entry, ensure_ascii=False, separators=(',', ':'))
 
 
 class LoggingConfig:
@@ -23,13 +71,19 @@ class LoggingConfig:
     }
     
     @classmethod
-    def setup_logging(cls, log_level: str = "INFO", service_name: str = "intent-recognition-service"):
+    def setup_logging(
+        cls, 
+        log_level: str = "DEBUG",
+        service_name: str = "algorithm-integration-service",
+        structured: bool = True
+    ):
         """
         配置日志系统
         
         Args:
             log_level: 日志级别 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
             service_name: 服务名称，用于日志标识
+            structured: 是否使用结构化日志格式
         """
         # 验证日志级别
         log_level = log_level.upper()
@@ -49,11 +103,16 @@ class LoggingConfig:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(cls.VALID_LOG_LEVELS[log_level])
         
-        # 配置日志格式：时间戳、级别、模块名、消息
-        formatter = logging.Formatter(
-            fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
+        # 根据配置选择格式化器
+        if structured:
+            formatter = StructuredFormatter(service_name)
+        else:
+            # 传统格式：时间戳、级别、模块名、消息
+            formatter = logging.Formatter(
+                fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+        
         console_handler.setFormatter(formatter)
         
         # 添加处理器到根日志记录器
@@ -64,7 +123,20 @@ class LoggingConfig:
         
         # 记录日志配置完成
         logger = logging.getLogger(__name__)
-        logger.info(f"日志系统初始化完成 - 服务: {service_name}, 级别: {log_level}")
+        if structured:
+            # 使用结构化格式记录初始化日志
+            init_log = {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "level": "INFO",
+                "message": "日志系统初始化完成",
+                "service": service_name,
+                "log_level": log_level,
+                "structured_logging": True,
+                "category": "system"
+            }
+            logger.info(json.dumps(init_log, ensure_ascii=False, separators=(',', ':')))
+        else:
+            logger.info(f"日志系统初始化完成 - 服务: {service_name}, 级别: {log_level}")
     
     @classmethod
     def _configure_third_party_loggers(cls, log_level: str):
@@ -78,9 +150,11 @@ class LoggingConfig:
         if log_level == "DEBUG":
             # DEBUG模式下显示更多信息
             third_party_level = logging.INFO
+            grpc_level = logging.WARNING  # 即使在DEBUG模式下，gRPC也只显示WARNING以上
         else:
             # 其他模式下减少第三方库日志
             third_party_level = logging.WARNING
+            grpc_level = logging.ERROR  # 非DEBUG模式下，gRPC只显示ERROR以上
         
         # 配置常见第三方库的日志级别
         third_party_loggers = [
@@ -100,6 +174,20 @@ class LoggingConfig:
         for logger_name in third_party_loggers:
             logger = logging.getLogger(logger_name)
             logger.setLevel(third_party_level)
+        
+        # 特别处理gRPC相关日志，设置更严格的级别
+        grpc_loggers = [
+            'grpc',
+            'grpc._cython.cygrpc',
+            'grpc._channel',
+            'grpc._common',
+            'grpc.aio',
+            'grpc._cygrpc'
+        ]
+        
+        for logger_name in grpc_loggers:
+            logger = logging.getLogger(logger_name)
+            logger.setLevel(grpc_level)
     
     @classmethod
     def get_logger(cls, name: str) -> logging.Logger:
@@ -144,15 +232,20 @@ class LoggingConfig:
 
 
 # 便捷函数
-def setup_logging(log_level: str = "INFO", service_name: str = "intent-recognition-service"):
+def setup_logging(
+    log_level: str = "DEBUG",
+    service_name: str = "algorithm-integration-service",
+    structured: bool = True
+):
     """
     设置日志配置的便捷函数
     
     Args:
         log_level: 日志级别
         service_name: 服务名称
+        structured: 是否使用结构化日志格式
     """
-    LoggingConfig.setup_logging(log_level, service_name)
+    LoggingConfig.setup_logging(log_level, service_name, structured)
 
 
 def get_logger(name: str) -> logging.Logger:
