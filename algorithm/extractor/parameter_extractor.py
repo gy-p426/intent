@@ -35,7 +35,13 @@ class ParameterExtractor(IParameterExtractor):
         """
         self.llm_client = llm_client
         self.config_manager = config_manager
-        logger.info("ParameterExtractor initialized")
+        
+        # 初始化算法注册中心
+        from algorithm.base.registry import algorithm_registry, register_all_algorithms
+        register_all_algorithms()
+        self.algorithm_registry = algorithm_registry
+        
+        logger.info("ParameterExtractor initialized with algorithm registry")
     
     async def extract_parameters(
         self, 
@@ -65,42 +71,46 @@ class ParameterExtractor(IParameterExtractor):
             if not algorithm_config:
                 raise ValueError(f"未找到算法类型 {algorithm_type.value} 的配置")
             
-            # 构建参数提取提示词
-            messages = self._build_extraction_prompt(
-                question, algorithm_config, database_schema
-            )
-            
-            # 调用LLM进行参数提取
-            response = await self.llm_client.chat_completion(messages)
-
-            logger.debug(f"LLM响应: {response}")
-            
-            # 解析LLM响应
-            extraction_result = self._parse_extraction_response(response)
-            
-            # 验证和设置默认值
-            validated_params = self._validate_and_set_defaults(
-                extraction_result, algorithm_config
-            )
-            
-            # 生成规范化查询语句（优先使用LLM提供的，否则基于参数生成）
-            llm_normalized_query = extraction_result.get('normalized_query')
-            if llm_normalized_query and llm_normalized_query != "未提供查询描述":
-                # 使用LLM提供的查询，但仍需要验证和格式化
-                parameter_json_mapping = self._create_parameter_json_mapping(
-                    validated_params, algorithm_config, database_schema
-                )
-                normalized_query = self._validate_and_format_query(
-                    llm_normalized_query, parameter_json_mapping, algorithm_config
+            # 尝试使用算法特定提取器
+            algorithm_extractor = self.algorithm_registry.get_extractor_by_type(algorithm_type)
+            if algorithm_extractor:
+                logger.info(f"使用算法特定提取器: {algorithm_extractor.algorithm_name}")
+                return await self._extract_with_specific_extractor(
+                    algorithm_extractor, question, algorithm_type, database_schema
                 )
             else:
-                # 基于算法参数和数据库列信息生成规范化查询
-                normalized_query = self._generate_normalized_query(
-                    question, algorithm_config, validated_params, database_schema
+                logger.info("使用通用提取器")
+                return await self._extract_with_generic_extractor(
+                    question, algorithm_type, database_schema
                 )
+                
+        except Exception as e:
+            logger.error(f"参数提取失败: {str(e)}", exc_info=True)
+            raise ValueError(f"参数提取失败: {str(e)}")
+    
+    async def _extract_with_specific_extractor(
+        self,
+        algorithm_extractor,
+        question: str,
+        algorithm_type: AlgorithmType,
+        database_schema: List[DatabaseColumn]
+    ) -> AlgorithmParameters:
+        """使用算法特定提取器提取参数"""
+        try:
+            # 使用算法特定提取器
+            messages = algorithm_extractor.build_extraction_prompt(question, database_schema)
+            response = await self.llm_client.chat_completion(messages)
+            logger.debug(f"LLM响应: {response}")
+            extraction_result = algorithm_extractor.parse_extraction_response(response)
+            validated_params = algorithm_extractor.validate_parameters(
+                extraction_result.get('parameter_mapping', {})
+            )
             
-            # 创建算法参数对象
-            algorithm_parameters = AlgorithmParameters(
+            # 生成规范化查询
+            normalized_query = extraction_result.get('normalized_query', 
+                                                   f"执行{algorithm_type.value}分析")
+            
+            return AlgorithmParameters(
                 algorithm_type=algorithm_type,
                 normalized_query=normalized_query,
                 parameter_mapping=validated_params,
@@ -108,12 +118,69 @@ class ParameterExtractor(IParameterExtractor):
                 sql_queries=extraction_result.get('sql_queries', {})
             )
             
-            logger.info(f"参数提取完成，提取到 {len(validated_params)} 个参数")
-            return algorithm_parameters
-            
         except Exception as e:
-            logger.error(f"参数提取失败: {str(e)}", exc_info=True)
-            raise ValueError(f"参数提取失败: {str(e)}")
+            logger.error(f"算法特定参数提取失败: {str(e)}")
+            # 回退到通用提取器
+            logger.info("回退到通用提取器")
+            return await self._extract_with_generic_extractor(
+                question, algorithm_type, database_schema
+            )
+    
+    async def _extract_with_generic_extractor(
+        self,
+        question: str,
+        algorithm_type: AlgorithmType,
+        database_schema: List[DatabaseColumn]
+    ) -> AlgorithmParameters:
+        """使用通用提取器提取参数"""
+        # 获取算法配置
+        algorithm_config = self.config_manager.get_algorithm_config(algorithm_type)
+        
+        # 构建参数提取提示词
+        messages = self._build_extraction_prompt(
+            question, algorithm_config, database_schema
+        )
+        
+        # 调用LLM进行参数提取
+        response = await self.llm_client.chat_completion(messages)
+
+        logger.debug(f"LLM响应: {response}")
+        
+        # 解析LLM响应
+        extraction_result = self._parse_extraction_response(response)
+        
+        # 验证和设置默认值
+        validated_params = self._validate_and_set_defaults(
+            extraction_result, algorithm_config
+        )
+        
+        # 生成规范化查询语句（优先使用LLM提供的，否则基于参数生成）
+        llm_normalized_query = extraction_result.get('normalized_query')
+        if llm_normalized_query and llm_normalized_query != "未提供查询描述":
+            # 使用LLM提供的查询，但仍需要验证和格式化
+            parameter_json_mapping = self._create_parameter_json_mapping(
+                validated_params, algorithm_config, database_schema
+            )
+            normalized_query = self._validate_and_format_query(
+                llm_normalized_query, parameter_json_mapping, algorithm_config
+            )
+        else:
+            # 基于算法参数和数据库列信息生成规范化查询
+            normalized_query = self._generate_normalized_query(
+                question, algorithm_config, validated_params, database_schema
+            )
+        
+        # 创建算法参数对象
+        algorithm_parameters = AlgorithmParameters(
+            algorithm_type=algorithm_type,
+            normalized_query=normalized_query,
+            parameter_mapping=validated_params,
+            required_columns=extraction_result.get('required_columns', []),
+            sql_queries=extraction_result.get('sql_queries', {})
+        )
+        
+        logger.info(f"参数提取完成，提取到 {len(validated_params)} 个参数")
+        return algorithm_parameters
     
     def _build_extraction_prompt(
         self, 

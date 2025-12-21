@@ -65,7 +65,7 @@ class NL2SQLClient(INL2SQLClient):
             ValueError: 请求参数无效时抛出
         """
         start_time = datetime.utcnow()
-        logger.info(f"调用NL2SQL服务: {request.question[:100]}...")
+        logger.info(f"调用NL2SQL服务: {request.question}...")
         
         try:
             # 验证请求参数

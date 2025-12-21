@@ -13,7 +13,7 @@ from datetime import datetime, date
 from decimal import Decimal
 from typing import List, Dict, Any, Union, Optional, Set
 from algorithm.models import (
-    AlgorithmConfig, AlgorithmParameters, AlgorithmExecutionRequest, AlgorithmField
+    AlgorithmConfig, AlgorithmParameters, AlgorithmExecutionRequest, AlgorithmField, AlgorithmType
 )
 from algorithm.interfaces import IDataProcessor
 
@@ -36,6 +36,11 @@ class DataProcessor(IDataProcessor):
             'failed_conversions': 0,
             'type_conversions': {}
         }
+        
+        # 初始化算法注册中心
+        from algorithm.base.registry import algorithm_registry, register_all_algorithms
+        register_all_algorithms()
+        self.algorithm_registry = algorithm_registry
     
     async def convert_sql_result_to_algorithm_input(
         self,
@@ -66,36 +71,58 @@ class DataProcessor(IDataProcessor):
             if not sql_result:
                 raise ValueError("SQL查询结果为空")
             
-            # 数据预处理和清洗
-            cleaned_data = await self._clean_and_preprocess_data(sql_result)
-            
-            # 根据算法类型进行不同的转换
-            if "聚类" in algorithm_config.name or parameters.algorithm_type.value == "cluster":
-                result = await self._convert_for_clustering(
-                    cleaned_data, algorithm_config, parameters
-                )
-            elif "分类" in algorithm_config.name or parameters.algorithm_type.value == "classify":
-                result = await self._convert_for_classification(
-                    cleaned_data, algorithm_config, parameters
+            # 尝试使用算法特定处理器
+            algorithm_processor = self.algorithm_registry.get_processor_by_type(parameters.algorithm_type)
+            if algorithm_processor:
+                logger.info(f"使用算法特定处理器: {algorithm_processor.algorithm_name}")
+                result = await algorithm_processor.convert_sql_result_to_algorithm_input(
+                    sql_result, algorithm_config, parameters
                 )
             else:
-                # 通用转换
-                result = await self._convert_generic(
-                    cleaned_data, algorithm_config, parameters
+                logger.info("使用通用处理器")
+                result = await self._convert_with_generic_processor(
+                    sql_result, algorithm_config, parameters
                 )
-            
-            # 执行数据类型转换和格式化
-            formatted_result = await self._format_algorithm_input(result, algorithm_config)
             
             self.conversion_stats['successful_conversions'] += 1
             logger.info(f"成功转换{len(sql_result)}行数据为{algorithm_config.name}算法输入")
             
-            return formatted_result
+            return result
                 
         except Exception as e:
             self.conversion_stats['failed_conversions'] += 1
             logger.error(f"SQL结果转换失败: {str(e)}")
             raise ValueError(f"数据转换失败: {str(e)}")
+    
+    async def _convert_with_generic_processor(
+        self,
+        sql_result: List[Dict[str, Any]],
+        algorithm_config: AlgorithmConfig,
+        parameters: AlgorithmParameters
+    ) -> AlgorithmExecutionRequest:
+        """使用通用处理器转换数据"""
+        # 数据预处理和清洗
+        cleaned_data = await self._clean_and_preprocess_data(sql_result)
+        
+        # 根据算法类型进行不同的转换
+        if "聚类" in algorithm_config.name or parameters.algorithm_type.value == "cluster":
+            result = await self._convert_for_clustering(
+                cleaned_data, algorithm_config, parameters
+            )
+        elif "分类" in algorithm_config.name or parameters.algorithm_type.value == "classify":
+            result = await self._convert_for_classification(
+                cleaned_data, algorithm_config, parameters
+            )
+        else:
+            # 通用转换
+            result = await self._convert_generic(
+                cleaned_data, algorithm_config, parameters
+            )
+        
+        # 执行数据类型转换和格式化
+        formatted_result = await self._format_algorithm_input(result, algorithm_config)
+        
+        return formatted_result
     
     async def _clean_and_preprocess_data(
         self, 
@@ -736,42 +763,75 @@ class DataProcessor(IDataProcessor):
         logger.debug(f"验证{algorithm_config.name}算法输入数据")
         
         try:
-            # 基础验证
-            if not request.data_rows:
-                logger.error("数据行为空")
-                return False
+            # 尝试使用算法特定处理器验证
+            # 从算法配置推断算法类型
+            algorithm_type = self._infer_algorithm_type_from_config(algorithm_config)
+            if algorithm_type:
+                algorithm_processor = self.algorithm_registry.get_processor_by_type(algorithm_type)
+                if algorithm_processor:
+                    logger.info(f"使用算法特定验证器: {algorithm_processor.algorithm_name}")
+                    return await algorithm_processor.validate_algorithm_input(request, algorithm_config)
             
-            if not request.config:
-                logger.error("算法配置为空")
-                return False
-            
-            # 验证必需字段
-            if not await self._validate_required_fields(request, algorithm_config):
-                return False
-            
-            # 验证数据行结构
-            if not await self._validate_data_rows_structure(request.data_rows, request.config):
-                return False
-            
-            # 验证数据质量
-            if not await self._validate_data_quality(request.data_rows, request.config):
-                return False
-            
-            # 验证数据类型
-            if not await self._validate_data_types(request, algorithm_config):
-                return False
-            
-            # 算法特定验证
-            if "聚类" in algorithm_config.name or "cluster" in algorithm_config.name.lower():
-                return await self._validate_clustering_input(request, algorithm_config)
-            elif "分类" in algorithm_config.name or "classif" in algorithm_config.name.lower():
-                return await self._validate_classification_input(request, algorithm_config)
-            
-            return True
+            # 回退到通用验证
+            logger.info("使用通用验证器")
+            return await self._validate_with_generic_validator(request, algorithm_config)
             
         except Exception as e:
             logger.error(f"验证算法输入数据失败: {str(e)}")
             return False
+    
+    def _infer_algorithm_type_from_config(self, algorithm_config: AlgorithmConfig) -> Optional[AlgorithmType]:
+        """从算法配置推断算法类型"""
+        try:
+            if "聚类" in algorithm_config.name or "cluster" in algorithm_config.name.lower():
+                return AlgorithmType.CLUSTER
+            elif "分类" in algorithm_config.name or "classif" in algorithm_config.name.lower():
+                return AlgorithmType.CLASSIFY
+            elif "预测" in algorithm_config.name or "forecast" in algorithm_config.name.lower():
+                return AlgorithmType.FORECAST
+            else:
+                return None
+        except:
+            return None
+    
+    async def _validate_with_generic_validator(
+        self,
+        request: AlgorithmExecutionRequest,
+        algorithm_config: AlgorithmConfig
+    ) -> bool:
+        """使用通用验证器验证数据"""
+        # 基础验证
+        if not request.data_rows:
+            logger.error("数据行为空")
+            return False
+        
+        if not request.config:
+            logger.error("算法配置为空")
+            return False
+        
+        # 验证必需字段
+        if not await self._validate_required_fields(request, algorithm_config):
+            return False
+        
+        # 验证数据行结构
+        if not await self._validate_data_rows_structure(request.data_rows, request.config):
+            return False
+        
+        # 验证数据质量
+        if not await self._validate_data_quality(request.data_rows, request.config):
+            return False
+        
+        # 验证数据类型
+        if not await self._validate_data_types(request, algorithm_config):
+            return False
+        
+        # 算法特定验证
+        if "聚类" in algorithm_config.name or "cluster" in algorithm_config.name.lower():
+            return await self._validate_clustering_input(request, algorithm_config)
+        elif "分类" in algorithm_config.name or "classif" in algorithm_config.name.lower():
+            return await self._validate_classification_input(request, algorithm_config)
+        
+        return True
     
     async def _validate_required_fields(
         self,
