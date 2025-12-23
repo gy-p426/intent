@@ -95,6 +95,7 @@ class AlgorithmParameters(BaseModel):
     parameter_mapping: Dict[str, Any] = Field(..., description="参数映射")
     required_columns: List[str] = Field(..., description="所需数据库列")
     sql_queries: Dict[str, str] = Field(default_factory=dict, description="生成的SQL查询")
+    query_db_result: Optional[Dict[str, Any]] = Field(None, description="query-db接口的结果，包含候选表和关键词")
 
 
 class NL2SQLRequest(BaseModel):

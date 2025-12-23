@@ -50,9 +50,171 @@ class NL2SQLClient(INL2SQLClient):
             self.session = aiohttp.ClientSession(timeout=timeout)
         return self.session
     
+    async def query_db(self, question: str, window_id: str = "default") -> Dict[str, Any]:
+        """
+        调用NL2SQL服务的/query-db接口获取候选表信息和关键词
+        
+        Args:
+            question: 用户自然语言查询
+            window_id: 窗口ID
+            
+        Returns:
+            Dict[str, Any]: 包含候选表和关键词的完整信息
+            
+        Raises:
+            ConnectionError: 服务连接失败时抛出
+            ValueError: 请求参数无效时抛出
+        """
+        start_time = datetime.utcnow()
+        logger.info(f"调用NL2SQL /query-db接口: {question}...")
+        
+        try:
+            # 验证请求参数
+            if not question or not question.strip():
+                raise ValueError("查询问题不能为空")
+            
+            # 准备请求数据
+            request_data = {
+                "question": question,
+                "windowId": window_id
+            }
+            
+            # 发送HTTP请求
+            session = await self._get_session()
+            url = f"{self.base_url.rstrip('/')}/api/query/query-db"
+            
+            logger.debug(f"发送请求到: {url}")
+            logger.debug(f"请求数据: {self._sanitize_log_data(request_data)}")
+            
+            async with session.post(url, json=request_data) as response:
+                if response.status == 200:
+                    try:
+                        raw_response = await response.json()
+                        
+                        # 检查响应是否成功
+                        if not raw_response.get('success', False):
+                            error_msg = raw_response.get('message', '未知错误')
+                            logger.error(f"NL2SQL /query-db接口返回失败响应: {error_msg}")
+                            return {
+                                'candidateTables': [],
+                                'keywords': {},
+                                'sessionId': None,
+                                'selectedDatabases': []
+                            }
+                        
+                        # 提取data字段中的完整信息
+                        data = raw_response.get('data', {})
+                        result = {
+                            'candidateTables': data.get('candidateTables', []),
+                            'keywords': data.get('keywords', {}),
+                            'sessionId': data.get('sessionId'),
+                            'selectedDatabases': data.get('selectedDatabases', [])
+                        }
+                        
+                        # 记录成功日志
+                        execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+                        logger.info(f"NL2SQL /query-db接口调用成功，获取到 {len(result['candidateTables'])} 个候选表，耗时: {execution_time:.2f}ms")
+                        
+                        return result
+                        
+                    except json.JSONDecodeError as e:
+                        logger.error(f"NL2SQL /query-db接口返回无效JSON: {str(e)}")
+                        raise ConnectionError("NL2SQL /query-db接口返回无效响应格式")
+                else:
+                    error_text = await response.text()
+                    logger.error(f"NL2SQL /query-db接口返回错误: {response.status} - {error_text}")
+                    raise ConnectionError(f"NL2SQL /query-db接口错误: HTTP {response.status}")
+                    
+        except aiohttp.ClientError as e:
+            logger.error(f"NL2SQL /query-db接口连接失败: {str(e)}")
+            raise ConnectionError(f"无法连接到NL2SQL /query-db接口: {str(e)}")
+        except asyncio.TimeoutError:
+            logger.error("NL2SQL /query-db接口请求超时")
+            raise ConnectionError("NL2SQL /query-db接口请求超时")
+        except Exception as e:
+            execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+            logger.error(f"NL2SQL /query-db接口调用失败，耗时: {execution_time:.2f}ms，错误: {str(e)}")
+            raise
+
+    async def query_sql(
+        self, 
+        question: str, 
+        candidate_tables: List[str], 
+        merged_keywords: Dict[str, Any], 
+        window_id: str, 
+        session_id: str
+    ) -> NL2SQLResponse:
+        """
+        调用NL2SQL服务的/query-sql接口生成和执行SQL
+        
+        Args:
+            question: 用户自然语言查询
+            candidate_tables: 候选表信息列表
+            merged_keywords: 合并的关键词
+            window_id: 窗口ID
+            session_id: 会话ID
+            
+        Returns:
+            NL2SQLResponse: NL2SQL响应
+            
+        Raises:
+            ConnectionError: 服务连接失败时抛出
+            ValueError: 请求参数无效时抛出
+        """
+        start_time = datetime.utcnow()
+        logger.info(f"调用NL2SQL /query-sql接口: {question}...")
+        
+        try:
+            # 验证请求参数
+            if not question or not question.strip():
+                raise ValueError("查询问题不能为空")
+            
+            if not candidate_tables:
+                logger.warning("候选表列表为空，可能影响SQL生成质量")
+            
+            # 准备请求数据
+            request_data = {
+                "question": question,
+                "candidateTables": candidate_tables,
+                "mergedKeywords": merged_keywords,
+                "windowId": window_id,
+                "sessionId": session_id
+            }
+            
+            # 发送HTTP请求
+            session = await self._get_session()
+            url = f"{self.base_url.rstrip('/')}/api/query/query-sql"
+            
+            logger.debug(f"发送请求到: {url}")
+            logger.debug(f"请求数据: {self._sanitize_log_data(request_data)}")
+            
+            async with session.post(url, json=request_data) as response:
+                response_data = await self._handle_response(response)
+                
+                # 使用响应处理器处理响应数据
+                nl2sql_response = self.response_processor.process_response(response_data, question)
+                
+                # 记录成功日志
+                execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+                logger.info(f"NL2SQL /query-sql接口调用成功，耗时: {execution_time:.2f}ms")
+                logger.debug(f"NL2SQL /query-sql接口返回数据: {self._sanitize_log_data(response_data)}")
+                
+                return nl2sql_response
+                    
+        except aiohttp.ClientError as e:
+            logger.error(f"NL2SQL /query-sql接口连接失败: {str(e)}")
+            raise ConnectionError(f"无法连接到NL2SQL /query-sql接口: {str(e)}")
+        except asyncio.TimeoutError:
+            logger.error("NL2SQL /query-sql接口请求超时")
+            raise ConnectionError("NL2SQL /query-sql接口请求超时")
+        except Exception as e:
+            execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+            logger.error(f"NL2SQL /query-sql接口调用失败，耗时: {execution_time:.2f}ms，错误: {str(e)}")
+            raise
+
     async def query(self, request: NL2SQLRequest) -> NL2SQLResponse:
         """
-        调用NL2SQL服务
+        调用NL2SQL服务（兼容旧接口，内部使用新的两阶段接口）
         
         Args:
             request: NL2SQL请求
@@ -65,48 +227,92 @@ class NL2SQLClient(INL2SQLClient):
             ValueError: 请求参数无效时抛出
         """
         start_time = datetime.utcnow()
-        logger.info(f"调用NL2SQL服务: {request.question}...")
+        logger.info(f"调用NL2SQL服务（两阶段模式）: {request.question}...")
         
         try:
             # 验证请求参数
             self._validate_request(request)
             
-            # 准备请求数据
-            request_data = {
-                "question": request.question,
-                "windowId": request.window_id,
-                "sessionId": request.session_id
-            }
+            # 第一阶段：获取候选表和关键词
+            logger.debug("执行第一阶段：获取候选表和关键词")
+            query_db_result = await self.query_db(request.question, request.window_id)
             
-            # 发送HTTP请求
-            session = await self._get_session()
-            url = f"{self.base_url.rstrip('/')}/api/query"
+            # 第二阶段：生成和执行SQL
+            logger.debug("执行第二阶段：生成和执行SQL")
+            nl2sql_response = await self.query_sql(
+                question=request.question,
+                candidate_tables=query_db_result['candidateTables'],
+                merged_keywords=query_db_result['keywords'],
+                window_id=request.window_id,
+                session_id=request.session_id
+            )
             
-            logger.debug(f"发送请求到: {url}")
-            logger.debug(f"请求数据: {self._sanitize_log_data(request_data)}")
+            # 记录总体成功日志
+            total_execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+            logger.info(f"NL2SQL服务（两阶段模式）调用成功，总耗时: {total_execution_time:.2f}ms")
             
-            async with session.post(url, json=request_data) as response:
-                response_data = await self._handle_response(response)
-                
-                # 使用响应处理器处理响应数据
-                nl2sql_response = self.response_processor.process_response(response_data, request.question)
-                
-                # 记录成功日志
-                execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
-                logger.info(f"NL2SQL服务调用成功，耗时: {execution_time:.2f}ms")
-                logger.debug(f"NL2SQL服务返回数据: {self._sanitize_log_data(response_data)}")
-                
-                return nl2sql_response
+            return nl2sql_response
                     
-        except aiohttp.ClientError as e:
-            logger.error(f"NL2SQL服务连接失败: {str(e)}")
-            raise ConnectionError(f"无法连接到NL2SQL服务: {str(e)}")
-        except asyncio.TimeoutError:
-            logger.error("NL2SQL服务请求超时")
-            raise ConnectionError("NL2SQL服务请求超时")
         except Exception as e:
-            execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
-            logger.error(f"NL2SQL服务调用失败，耗时: {execution_time:.2f}ms，错误: {str(e)}")
+            total_execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+            logger.error(f"NL2SQL服务（两阶段模式）调用失败，总耗时: {total_execution_time:.2f}ms，错误: {str(e)}")
+            raise
+
+    async def query_with_candidates(
+        self, 
+        question: str, 
+        candidate_tables: List[str], 
+        keywords: Dict[str, Any], 
+        window_id: str, 
+        session_id: str
+    ) -> NL2SQLResponse:
+        """
+        使用预先获取的候选表和关键词调用NL2SQL服务，避免重复调用query-db
+        
+        Args:
+            question: 用户自然语言查询
+            candidate_tables: 预先获取的候选表信息列表
+            keywords: 预先获取的关键词信息
+            window_id: 窗口ID
+            session_id: 会话ID
+            
+        Returns:
+            NL2SQLResponse: NL2SQL响应
+            
+        Raises:
+            ConnectionError: 服务连接失败时抛出
+            ValueError: 请求参数无效时抛出
+        """
+        start_time = datetime.utcnow()
+        logger.info(f"调用NL2SQL服务（使用预先获取的候选表）: {question}...")
+        
+        try:
+            # 验证请求参数
+            if not question or not question.strip():
+                raise ValueError("查询问题不能为空")
+            
+            if not candidate_tables:
+                logger.warning("候选表列表为空，可能影响SQL生成质量")
+            
+            # 直接调用query_sql，跳过query_db阶段
+            logger.debug(f"使用 {len(candidate_tables)} 个预先获取的候选表调用query-sql接口")
+            nl2sql_response = await self.query_sql(
+                question=question,
+                candidate_tables=candidate_tables,
+                merged_keywords=keywords,
+                window_id=window_id,
+                session_id=session_id
+            )
+            
+            # 记录总体成功日志
+            total_execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+            logger.info(f"NL2SQL服务（使用预先候选表）调用成功，总耗时: {total_execution_time:.2f}ms")
+            
+            return nl2sql_response
+                    
+        except Exception as e:
+            total_execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+            logger.error(f"NL2SQL服务（使用预先候选表）调用失败，总耗时: {total_execution_time:.2f}ms，错误: {str(e)}")
             raise
     
     async def query_with_retry(

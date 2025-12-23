@@ -38,7 +38,11 @@ class ParameterExtractor(IParameterExtractor):
         
         # 初始化算法注册中心
         from algorithm.base.registry import algorithm_registry, register_all_algorithms
-        register_all_algorithms()
+        from algorithm.clients.nl2sql_client import NL2SQLClient
+        
+        # 创建NL2SQL客户端实例
+        nl2sql_client = NL2SQLClient()
+        register_all_algorithms(nl2sql_client)
         self.algorithm_registry = algorithm_registry
         
         logger.info("ParameterExtractor initialized with algorithm registry")
@@ -47,7 +51,8 @@ class ParameterExtractor(IParameterExtractor):
         self, 
         question: str, 
         algorithm_type: AlgorithmType,
-        database_schema: List[DatabaseColumn]
+        database_schema: List[DatabaseColumn],
+        window_id: str = "default"
     ) -> AlgorithmParameters:
         """
         从用户查询中提取算法参数
@@ -56,6 +61,7 @@ class ParameterExtractor(IParameterExtractor):
             question: 用户自然语言查询
             algorithm_type: 算法类型
             database_schema: 数据库模式信息
+            window_id: 窗口ID
             
         Returns:
             AlgorithmParameters: 提取的算法参数
@@ -76,12 +82,12 @@ class ParameterExtractor(IParameterExtractor):
             if algorithm_extractor:
                 logger.info(f"使用算法特定提取器: {algorithm_extractor.algorithm_name}")
                 return await self._extract_with_specific_extractor(
-                    algorithm_extractor, question, algorithm_type, database_schema
+                    algorithm_extractor, question, algorithm_type, database_schema, window_id
                 )
             else:
                 logger.info("使用通用提取器")
                 return await self._extract_with_generic_extractor(
-                    question, algorithm_type, database_schema
+                    question, algorithm_type, database_schema, window_id
                 )
                 
         except Exception as e:
@@ -93,12 +99,13 @@ class ParameterExtractor(IParameterExtractor):
         algorithm_extractor,
         question: str,
         algorithm_type: AlgorithmType,
-        database_schema: List[DatabaseColumn]
+        database_schema: List[DatabaseColumn],
+        window_id: str = "default"
     ) -> AlgorithmParameters:
         """使用算法特定提取器提取参数"""
         try:
             # 使用算法特定提取器
-            messages = algorithm_extractor.build_extraction_prompt(question, database_schema)
+            messages = await algorithm_extractor.build_extraction_prompt(question, database_schema, window_id)
             response = await self.llm_client.chat_completion(messages)
             logger.debug(f"LLM响应: {response}")
             extraction_result = algorithm_extractor.parse_extraction_response(response)
@@ -110,12 +117,18 @@ class ParameterExtractor(IParameterExtractor):
             normalized_query = extraction_result.get('normalized_query', 
                                                    f"执行{algorithm_type.value}分析")
             
+            # 获取query_db结果（如果extractor支持）
+            query_db_result = None
+            if hasattr(algorithm_extractor, 'get_last_query_db_result'):
+                query_db_result = algorithm_extractor.get_last_query_db_result()
+            
             return AlgorithmParameters(
                 algorithm_type=algorithm_type,
                 normalized_query=normalized_query,
                 parameter_mapping=validated_params,
                 required_columns=extraction_result.get('required_columns', []),
-                sql_queries=extraction_result.get('sql_queries', {})
+                sql_queries=extraction_result.get('sql_queries', {}),
+                query_db_result=query_db_result
             )
             
         except Exception as e:
@@ -123,22 +136,23 @@ class ParameterExtractor(IParameterExtractor):
             # 回退到通用提取器
             logger.info("回退到通用提取器")
             return await self._extract_with_generic_extractor(
-                question, algorithm_type, database_schema
+                question, algorithm_type, database_schema, window_id
             )
     
     async def _extract_with_generic_extractor(
         self,
         question: str,
         algorithm_type: AlgorithmType,
-        database_schema: List[DatabaseColumn]
+        database_schema: List[DatabaseColumn],
+        window_id: str = "default"
     ) -> AlgorithmParameters:
         """使用通用提取器提取参数"""
         # 获取算法配置
         algorithm_config = self.config_manager.get_algorithm_config(algorithm_type)
         
         # 构建参数提取提示词
-        messages = self._build_extraction_prompt(
-            question, algorithm_config, database_schema
+        messages = await self._build_extraction_prompt(
+            question, algorithm_config, database_schema, window_id
         )
         
         # 调用LLM进行参数提取
@@ -176,17 +190,19 @@ class ParameterExtractor(IParameterExtractor):
             normalized_query=normalized_query,
             parameter_mapping=validated_params,
             required_columns=extraction_result.get('required_columns', []),
-            sql_queries=extraction_result.get('sql_queries', {})
+            sql_queries=extraction_result.get('sql_queries', {}),
+            query_db_result=getattr(self, '_last_query_db_result', None)
         )
         
         logger.info(f"参数提取完成，提取到 {len(validated_params)} 个参数")
         return algorithm_parameters
     
-    def _build_extraction_prompt(
+    async def _build_extraction_prompt(
         self, 
         question: str, 
         algorithm_config: AlgorithmConfig,
-        database_schema: List[DatabaseColumn]
+        database_schema: List[DatabaseColumn],
+        window_id: str = "default"
     ) -> List[Dict[str, str]]:
         """
         构建参数提取的LLM提示模板
@@ -195,12 +211,16 @@ class ParameterExtractor(IParameterExtractor):
             question: 用户问题
             algorithm_config: 算法配置
             database_schema: 数据库模式信息
+            window_id: 窗口ID
             
         Returns:
             List[Dict[str, str]]: LLM消息列表
         """
-        # 格式化数据库模式信息
-        schema_text = self._format_database_schema(database_schema)
+        # 从NL2SQL服务获取候选表信息和关键词
+        schema_text, query_db_result = await self._get_candidate_tables_from_nl2sql(question, window_id)
+        
+        # 保存查询结果供后续使用
+        self._last_query_db_result = query_db_result
         
         # 格式化算法字段要求
         fields_text = self._format_algorithm_fields(algorithm_config)
@@ -257,6 +277,41 @@ class ParameterExtractor(IParameterExtractor):
         logger.debug(f"构建参数提取提示词: system={len(system_prompt)} chars, user={len(user_prompt)} chars")
         
         return messages
+    
+    async def _get_candidate_tables_from_nl2sql(self, question: str, window_id: str = "default") -> tuple[str, Dict[str, Any]]:
+        """
+        从NL2SQL服务获取候选表信息和关键词
+        
+        Args:
+            question: 用户问题
+            window_id: 窗口ID
+            
+        Returns:
+            tuple[str, Dict[str, Any]]: (格式化的候选表信息, 完整的查询结果)
+        """
+        try:
+            # 获取NL2SQL客户端
+            from algorithm.clients.nl2sql_client import NL2SQLClient
+            
+            async with NL2SQLClient() as nl2sql_client:
+                query_db_result = await nl2sql_client.query_db(question, window_id)
+                
+                candidate_tables = query_db_result.get('candidateTables', [])
+                if not candidate_tables:
+                    return "（未找到相关的数据库表信息）", query_db_result
+                
+                # 格式化候选表信息
+                formatted_tables = []
+                for table_info in candidate_tables:
+                    # 候选表信息格式: "表名||表注释||PK:主键||FK:外键||||列名||列注释||数据类型||..."
+                    formatted_tables.append(f"候选表: {table_info}")
+                
+                formatted_schema = "\n".join(formatted_tables)
+                return formatted_schema, query_db_result
+                
+        except Exception as e:
+            logger.error(f"获取候选表信息失败: {str(e)}")
+            return f"（获取数据库信息失败: {str(e)}）", {}
     
     def _format_database_schema(self, database_schema: List[DatabaseColumn]) -> str:
         """

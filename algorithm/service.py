@@ -8,7 +8,7 @@ and provides the primary interface for algorithm execution workflows.
 import logging
 import asyncio
 import uuid
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 from algorithm.models import AlgorithmType, AlgorithmParameters, AlgorithmResponseGenerator
@@ -230,7 +230,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             )
             
             try:
-                parameters = await self._extract_parameters_with_retry(question, algorithm_type)
+                parameters = await self._extract_parameters_with_retry(question, algorithm_type, window_id)
                 execution_time_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
                 
                 # 记录结构化日志
@@ -277,12 +277,24 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 )
                 
                 try:
-                    nl2sql_request = NL2SQLRequest(
-                        question=parameters.normalized_query,
-                        window_id=window_id,
-                        session_id=session_id
-                    )
-                    nl2sql_response = await self._query_nl2sql_with_retry(nl2sql_request)
+                    # 检查是否有query_db结果，如果有则使用预先获取的候选表信息
+                    if parameters.query_db_result and parameters.query_db_result.get('candidateTables'):
+                        logger.info("使用extractor提供的候选表信息，避免重复调用/query-db接口")
+                        nl2sql_response = await self._query_nl2sql_with_candidates_retry(
+                            parameters.normalized_query,
+                            parameters.query_db_result['candidateTables'],
+                            parameters.query_db_result.get('keywords', {}),
+                            window_id,
+                            session_id
+                        )
+                    else:
+                        logger.info("使用传统方式调用NL2SQL接口（内部执行完整两阶段流程）")
+                        nl2sql_request = NL2SQLRequest(
+                            question=parameters.normalized_query,
+                            window_id=window_id,
+                            session_id=session_id
+                        )
+                        nl2sql_response = await self._query_nl2sql_with_retry(nl2sql_request)
                     
                     # 流式返回SQL生成结果
                     yield AlgorithmResponse(
@@ -509,7 +521,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
     async def extract_parameters(
         self, 
         question: str, 
-        algorithm_type: AlgorithmType
+        algorithm_type: AlgorithmType,
+        window_id: str = "default"
     ) -> AlgorithmParameters:
         """
         提取算法参数
@@ -517,6 +530,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         Args:
             question: 用户查询
             algorithm_type: 算法类型
+            window_id: 窗口ID
             
         Returns:
             AlgorithmParameters: 提取的参数
@@ -536,7 +550,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             database_schema = []
         
         return await self.parameter_extractor.extract_parameters(
-            question, algorithm_type, database_schema
+            question, algorithm_type, database_schema, window_id
         )
     
     def _validate_request_parameters(self, question: str, window_id: str, session_id: str):
@@ -584,26 +598,49 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
     async def _extract_parameters_with_retry(
         self, 
         question: str, 
-        algorithm_type: AlgorithmType
+        algorithm_type: AlgorithmType,
+        window_id: str = "default"
     ) -> AlgorithmParameters:
         """带重试的参数提取"""
         return await self.retry_handler.retry_async(
             self.extract_parameters,
             question,
             algorithm_type,
+            window_id,
             config=self.retry_configs['parameter_extraction'],
             retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
             context={'operation': 'parameter_extraction', 'algorithm_type': algorithm_type.value}
         )
     
     async def _query_nl2sql_with_retry(self, request) -> Any:
-        """带重试的NL2SQL查询"""
+        """带重试的NL2SQL查询（完整流程）"""
         return await self.retry_handler.retry_async(
             self.nl2sql_client.query,
             request,
             config=self.retry_configs['nl2sql'],
             retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
             context={'operation': 'nl2sql_query', 'question': request.question[:100]}
+        )
+    
+    async def _query_nl2sql_with_candidates_retry(
+        self, 
+        question: str, 
+        candidate_tables: List[str], 
+        keywords: Dict[str, Any], 
+        window_id: str, 
+        session_id: str
+    ) -> Any:
+        """使用预先获取的候选表信息调用NL2SQL服务（避免重复调用query-db）"""
+        return await self.retry_handler.retry_async(
+            self.nl2sql_client.query_with_candidates,
+            question,
+            candidate_tables,
+            keywords,
+            window_id,
+            session_id,
+            config=self.retry_configs['nl2sql'],
+            retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
+            context={'operation': 'nl2sql_query_with_candidates', 'question': question[:100]}
         )
     
     async def _convert_data_with_validation(

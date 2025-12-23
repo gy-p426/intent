@@ -43,7 +43,8 @@ class IParameterExtractor(ABC):
         self, 
         question: str, 
         algorithm_type: AlgorithmType,
-        database_schema: List[DatabaseColumn]
+        database_schema: List[DatabaseColumn],
+        window_id: str = "default"
     ) -> AlgorithmParameters:
         """
         从用户查询中提取算法参数
@@ -52,6 +53,7 @@ class IParameterExtractor(ABC):
             question: 用户自然语言查询
             algorithm_type: 算法类型
             database_schema: 数据库模式信息
+            window_id: 窗口ID
             
         Returns:
             AlgorithmParameters: 提取的算法参数

@@ -71,13 +71,13 @@ class AlgorithmRegistry:
 algorithm_registry = AlgorithmRegistry()
 
 
-def register_all_algorithms():
+def register_all_algorithms(nl2sql_client=None):
     """自动注册所有算法"""
     try:
         # K-Means算法
         from algorithm.kmeans.extractor import KMeansExtractor
         from algorithm.kmeans.processor import KMeansProcessor
-        algorithm_registry.register_algorithm(KMeansExtractor(), KMeansProcessor())
+        algorithm_registry.register_algorithm(KMeansExtractor(nl2sql_client), KMeansProcessor())
         
         logger.info("所有算法注册完成")
         

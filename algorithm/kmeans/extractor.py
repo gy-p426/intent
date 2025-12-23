@@ -5,7 +5,7 @@ K-Means聚类算法参数提取器
 """
 
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from algorithm.base.base_extractor import BaseAlgorithmExtractor
 from algorithm.models import AlgorithmType, DatabaseColumn
 
@@ -23,23 +23,27 @@ class KMeansExtractor(BaseAlgorithmExtractor):
     def algorithm_name(self) -> str:
         return "kmeans"
     
-    def build_extraction_prompt(
+    async def build_extraction_prompt(
         self, 
         question: str, 
-        database_schema: List[DatabaseColumn]
+        database_schema: Optional[List[DatabaseColumn]] = None,
+        window_id: str = "default"
     ) -> List[Dict[str, str]]:
         """构建K-Means特定的参数提取提示词"""
         
-        # 格式化数据库模式信息
-        schema_text = self._format_database_schema(database_schema)
+        # 从NL2SQL服务获取候选表信息和关键词
+        schema_text, query_db_result = await self._get_candidate_tables_from_nl2sql(question, window_id)
+        
+        # 保存查询结果供后续使用
+        self._last_query_db_result = query_db_result
         
         system_prompt = f"""你是K-Means聚类分析专家。根据用户问题和数据库信息，提取聚类分析所需的参数。
 
 重要：你必须严格按照以下规则输出JSON，确保参数名和列名完全匹配数据库中的实际列名。
 
 K-Means聚类分析要求：
-1. id_column: 必须指定一个ID列，用于标识每个数据点
-2. feature_columns: 必须指定至少1个数值型特征列，用于聚类计算
+1. id_column: 必须指定一个ID列，用于标识每个数据点，如"员工id"
+2. feature_columns: 必须指定至少1个数值型特征列，用于聚类计算，如"工作效率评分"
 3. k_value: 可选，聚类数量，如果用户没有明确指定则设为null
 4. normalized_query：用于从text-to-sql算法获取数据的自然语言
 
@@ -52,6 +56,7 @@ K-Means聚类分析要求：
 3. 不要创造不存在的列名
 4. 列名必须与数据库schema中的column_name完全一致
 5. 优先选择有注释说明的列，这样更容易理解业务含义
+6. normalized_query中一定写明返回的数据列注释（即id_column+feature_columns），否则无法正确解析，如"获取员工id、工作效率评分"！！！
 
 输出JSON格式（严格遵守）：
 {{
@@ -60,7 +65,6 @@ K-Means聚类分析要求：
     "feature_columns": ["工作效率评分", "工作质量评分",...],
     "k_value": 聚类数量或null
   }},
-  "required_columns": ["所有需要的实际列注释"],
   "normalized_query": "获取已完成绩效评估的员工ID、工作效率评分、工作质量评分、工作态度评分、团队合作评分、创新能力评分和总分数据"
 }}"""
         
@@ -81,6 +85,10 @@ K-Means聚类分析要求：
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
+    
+    def get_last_query_db_result(self) -> Dict[str, Any]:
+        """获取最后一次query_db的结果，用于后续的SQL生成"""
+        return getattr(self, '_last_query_db_result', {})
     
     def _format_database_schema(self, database_schema: List[DatabaseColumn]) -> str:
         """格式化数据库模式信息"""

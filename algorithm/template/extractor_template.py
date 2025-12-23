@@ -5,7 +5,7 @@ Template Algorithm Parameter Extractor
 """
 
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from algorithm.base.base_extractor import BaseAlgorithmExtractor
 from algorithm.models import AlgorithmType, DatabaseColumn
 
@@ -25,15 +25,19 @@ class TemplateExtractor(BaseAlgorithmExtractor):
         # TODO: 修改为你的算法名称（用于注册）
         return "template"  # 示例：模板算法
     
-    def build_extraction_prompt(
+    async def build_extraction_prompt(
         self, 
         question: str, 
-        database_schema: List[DatabaseColumn]
+        database_schema: Optional[List[DatabaseColumn]] = None,
+        window_id: str = "default"
     ) -> List[Dict[str, str]]:
         """构建算法特定的参数提取提示词"""
         
-        # 格式化数据库模式信息
-        schema_text = self._format_database_schema(database_schema)
+        # 从NL2SQL服务获取候选表信息和关键词
+        schema_text, query_db_result = await self._get_candidate_tables_from_nl2sql(question, window_id)
+        
+        # 保存查询结果供后续使用
+        self._last_query_db_result = query_db_result
         
         # TODO: 根据你的算法需求设计系统提示词
         system_prompt = f"""你是[算法名称]专家。根据用户问题和数据库信息，提取算法所需的参数。
@@ -169,3 +173,7 @@ class TemplateExtractor(BaseAlgorithmExtractor):
         #     validated['numeric_param'] = None
         
         return validated
+    
+    def get_last_query_db_result(self) -> Dict[str, Any]:
+        """获取最后一次query_db的结果，用于后续的SQL生成"""
+        return getattr(self, '_last_query_db_result', {})
