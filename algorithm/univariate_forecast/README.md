@@ -6,29 +6,36 @@
 
 ## 支持的算法
 
-- **ARIMA**: 自回归积分滑动平均模型，适合平稳或可差分平稳的时间序列
-- **Prophet**: Facebook开发的时间序列预测模型，适合有明显季节性和趋势的数据
+| 算法 | 说明 | 适用场景 |
+|------|------|----------|
+| ARIMA | 自回归积分滑动平均模型 | 平稳或可差分平稳的时间序列，数据量较小 |
+| Prophet | Facebook开发的时间序列预测模型 | 有明显季节性和趋势的数据，节假日效应 |
 
 ## 参数说明
 
 ### 必需参数
 
-- **timestamp_column**: 时间戳列名，用于标识时间序列的时间点
-- **value_column**: 数值列名，作为预测的目标变量
+| 参数名 | 类型 | 说明 |
+|--------|------|------|
+| timestamp_column | string | 时间戳列名，用于标识时间序列的时间点 |
+| value_column | string | 数值列名，作为预测的目标变量 |
 
 ### 可选参数
 
-- **forecast_horizon**: 预测步数，默认24，范围1-365
-- **model_type**: 预测模型类型，`auto`（自动选择）、`arima` 或 `prophet`，默认 `auto`
-- **include_confidence**: 是否包含置信区间，默认 `true`
-- **confidence_level**: 置信区间水平，默认 0.95
+| 参数名 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| forecast_horizon | integer | 24 | 预测步数，范围 1-365 |
+| model_type | string | auto | 预测模型类型：`auto`（自动选择）、`arima`、`prophet` |
+| include_confidence | boolean | true | 是否包含置信区间 |
+| confidence_level | float | 0.95 | 置信区间水平，范围 0.5-0.99 |
 
 ## 数据要求
 
-1. 至少需要10个数据点
-2. 数值数据比例应大于80%
+1. 至少需要 **10个** 数据点
+2. 数值数据比例应大于 **80%**
 3. 需要包含时间列和数值列
 4. 时间序列应按时间顺序排列
+5. 建议预测步数不超过历史数据长度的 **1/3**
 
 ## 使用示例
 
@@ -79,6 +86,8 @@
 
 ## 输出结果
 
+详细的返回参数说明请参考 [算法返回参数规范文档](../API_RESPONSE_SPEC.md)。
+
 ```json
 {
   "success": true,
@@ -104,25 +113,40 @@
 ## 模型选择逻辑
 
 自动模型选择（`model_type: auto`）基于以下规则：
-1. 数据点少于50个时，优先使用ARIMA
-2. 数据有明显季节性时，优先使用Prophet
-3. 数据有明显趋势时，优先使用Prophet
-4. 其他情况使用ARIMA
+
+| 条件 | 选择模型 |
+|------|----------|
+| 数据点少于50个 | ARIMA |
+| 数据有明显季节性 | Prophet |
+| 数据有明显趋势 | Prophet |
+| 其他情况 | ARIMA |
 
 ## 文件结构
 
 ```
 algorithm/univariate_forecast/
-├── __init__.py          # 模块初始化
-├── extractor.py         # 参数提取器
-├── processor.py         # 数据处理器
-├── config.py            # 算法配置
+├── __init__.py          # 模块初始化，导出主要类
+├── config.py            # 算法配置定义
+├── extractor.py         # 参数提取器（UnivariateForecastExtractor）
+├── processor.py         # 数据处理器（UnivariateForecastProcessor）
 └── README.md            # 本文档
 ```
 
+## 核心组件
+
+### UnivariateForecastExtractor (extractor.py)
+参数提取器，负责从用户自然语言查询中提取单变量预测所需的参数。
+
+### UnivariateForecastProcessor (processor.py)
+数据处理器，负责：
+1. 将SQL查询结果转换为预测所需格式
+2. 数据清洗和预处理
+3. 验证算法输入
+4. 调用核心预测模块执行预测
+
 ## 依赖模块
 
-本算法整合模块依赖 `forecast_modules/auto_univariate_forecast` 中的核心实现：
+本算法整合模块依赖 `algorithm/forecast_core/auto_univariate_forecast` 中的核心实现：
 - `AutoUnivariatePredictor`: 自动单变量预测器
 - `ARIMAModel`: ARIMA模型实现
 - `ProphetModel`: Prophet模型实现
@@ -133,3 +157,28 @@ algorithm/univariate_forecast/
 2. ARIMA模型对数据平稳性有要求，会自动进行差分处理
 3. 预测步数过大可能导致预测精度下降
 4. 建议预测步数不超过历史数据长度的1/3
+5. 数据中的缺失值会自动进行线性插值处理
+
+## 测试
+
+运行测试用例：
+```bash
+# 运行单变量预测专项测试
+python -m pytest tests/algorithm/test_univariate_forecast.py -v
+
+# 运行所有预测算法集成测试
+python -m pytest tests/test_forecast_integration.py -k "univariate" -v
+```
+
+## 开发指南
+
+### 修改提示词
+在 `extractor.py` 的 `build_extraction_prompt` 方法中修改系统提示词和用户提示词。
+
+### 修改数据处理逻辑
+在 `processor.py` 中修改数据转换和验证逻辑。
+
+### 添加新的预测模型
+1. 在 `config.py` 中添加新模型的配置
+2. 在 `processor.py` 的 `execute_univariate_forecast` 方法中添加新模型的调用逻辑
+3. 更新本文档
