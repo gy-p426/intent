@@ -46,3 +46,8 @@ KMEANS_CONFIG = {
         "remove_outliers": False
     }
 }
+
+# 自己写一下响应参数
+KMEANS_RESULT = {
+
+}

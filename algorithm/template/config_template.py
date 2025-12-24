@@ -57,3 +57,8 @@ TEMPLATE_CONFIG = {
         "remove_outliers": False
     }
 }
+
+# TODO:自己写一下响应参数，方便我后续针对每个算法开发接收的参数
+TEMPLATE_RESULT = {
+
+}

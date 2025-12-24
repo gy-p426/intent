@@ -56,7 +56,7 @@ K-Means聚类分析要求：
 3. 不要创造不存在的列名
 4. 列名必须与数据库schema中的column_name完全一致
 5. 优先选择有注释说明的列，这样更容易理解业务含义
-6. normalized_query中一定写明返回的数据列注释（即id_column+feature_columns），否则无法正确解析，如"获取员工id、工作效率评分"！！！
+6. normalized_query中一定写明返回的数据列注释（即id_column+feature_columns），并且标名返回几列数据，否则无法正确解析，如"获取员工id、工作效率评分，共2列数据"，！！！
 
 输出JSON格式（严格遵守）：
 {{
@@ -65,7 +65,7 @@ K-Means聚类分析要求：
     "feature_columns": ["工作效率评分", "工作质量评分",...],
     "k_value": 聚类数量或null
   }},
-  "normalized_query": "获取已完成绩效评估的员工ID、工作效率评分、工作质量评分、工作态度评分、团队合作评分、创新能力评分和总分数据"
+  "normalized_query": "获取已完成绩效评估的员工ID、工作效率评分、工作质量评分、工作态度评分、团队合作评分、创新能力评分和总分数据，共7列数据"
 }}"""
         
         user_prompt = f"""用户问题: {question}
