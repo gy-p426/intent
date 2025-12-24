@@ -79,6 +79,21 @@ def register_all_algorithms(nl2sql_client=None):
         from algorithm.kmeans.processor import KMeansProcessor
         algorithm_registry.register_algorithm(KMeansExtractor(nl2sql_client), KMeansProcessor())
         
+        # 趋势分析算法
+        from algorithm.trend_analysis.extractor import TrendAnalysisExtractor
+        from algorithm.trend_analysis.processor import TrendAnalysisProcessor
+        algorithm_registry.register_algorithm(TrendAnalysisExtractor(nl2sql_client), TrendAnalysisProcessor())
+        
+        # 单变量预测算法
+        from algorithm.univariate_forecast.extractor import UnivariateForecastExtractor
+        from algorithm.univariate_forecast.processor import UnivariateForecastProcessor
+        algorithm_registry.register_algorithm(UnivariateForecastExtractor(nl2sql_client), UnivariateForecastProcessor())
+        
+        # 多变量预测算法
+        from algorithm.multivariate_forecast.extractor import MultivariateForecastExtractor
+        from algorithm.multivariate_forecast.processor import MultivariateForecastProcessor
+        algorithm_registry.register_algorithm(MultivariateForecastExtractor(nl2sql_client), MultivariateForecastProcessor())
+        
         logger.info("所有算法注册完成")
         
     except ImportError as e:

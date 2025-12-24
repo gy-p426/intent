@@ -119,46 +119,80 @@
     },
     "predict": {
       "name": "预测分析",
-      "description": "基于历史数据预测未来趋势，用于销售预测、故障预测等",
+      "description": "基于历史数据预测未来趋势，支持单变量和多变量预测",
       "api_endpoint": "/prediction/forecast",
       "method": "POST",
       "required_fields": [
         {
+          "field": "timestamp_column",
+          "type": "string",
+          "description": "时间列名"
+        },
+        {
           "field": "target_column",
           "type": "string",
-          "description": "预测目标列"
-        },
-        {
-          "field": "feature_columns",
-          "type": "array",
-          "description": "预测特征列"
-        },
-        {
-          "field": "time_column",
-          "type": "string",
-          "description": "时间列"
+          "description": "预测目标列名"
         }
       ],
       "optional_fields": [
         {
-          "field": "prediction_horizon",
-          "type": "integer",
-          "default": 30,
-          "description": "预测时间范围（天）"
+          "field": "feature_columns",
+          "type": "array",
+          "default": null,
+          "description": "特征列列表（多变量预测时使用，null时为单变量预测）"
         },
         {
-          "field": "model_type",
+          "field": "forecast_horizon",
+          "type": "integer",
+          "default": 14,
+          "description": "预测步数（天数）"
+        },
+        {
+          "field": "algorithm",
           "type": "string",
-          "default": "arima",
-          "options": ["arima", "lstm", "prophet", "linear_regression"],
-          "description": "预测模型类型"
+          "default": "auto",
+          "options": ["auto", "prophet", "arima", "lightgbm", "xgboost", "random_forest", "linear_regression"],
+          "description": "预测算法，auto时根据数据特征自动选择"
+        },
+        {
+          "field": "model_name",
+          "type": "string",
+          "default": null,
+          "description": "模型名称，用于保存和复用模型"
         }
       ],
       "data_format": "time_series",
-      "sql_template": "SELECT {time_column}, {feature_columns}, {target_column} FROM {table_name} WHERE {time_conditions} ORDER BY {time_column}",
+      "sql_template": "SELECT {timestamp_column}, {target_column}, {feature_columns} FROM {table_name} WHERE {time_conditions} ORDER BY {timestamp_column}",
+      "payload_structure": {
+        "data_rows": "从SQL查询获取的时间序列数据",
+        "config": {
+          "timestamp_column": "时间列名",
+          "target_column": "目标列名",
+          "feature_columns": "特征列数组或null",
+          "forecast_horizon": "预测步数",
+          "algorithm": "预测算法",
+          "model_name": "模型名称或null"
+        }
+      },
+      "sub_algorithms": {
+        "univariate_forecast": {
+          "name": "单变量预测",
+          "description": "基于单一时间序列的预测，使用Prophet或ARIMA",
+          "algorithms": ["prophet", "arima"],
+          "examples": ["预测未来14天的销售额", "预测下周的用户活跃度"]
+        },
+        "multivariate_forecast": {
+          "name": "多变量预测",
+          "description": "基于多个特征的预测，使用机器学习算法",
+          "algorithms": ["lightgbm", "xgboost", "random_forest", "linear_regression"],
+          "examples": ["基于温度湿度预测能耗", "使用多特征预测销量"]
+        }
+      },
       "examples": [
-        "预测设备故障概率",
-        "预测下个月的销售额",
+        "预测未来14天的销售额",
+        "预测下个月的用户活跃度",
+        "基于历史数据预测设备故障",
+        "使用lightgbm预测能耗",
         "预测股票价格走势"
       ]
     },
@@ -319,43 +353,52 @@
     },
     "trend": {
       "name": "趋势分析",
-      "description": "分析数据的时间趋势和季节性模式，用于市场分析、预测等",
+      "description": "分析数据的时间趋势和季节性模式，支持趋势检测、季节性分解、变点检测等功能",
       "api_endpoint": "/trend/analyze",
       "method": "POST",
       "required_fields": [
         {
-          "field": "time_column",
+          "field": "timestamp_column",
           "type": "string",
-          "description": "时间列"
+          "description": "时间列名"
         },
         {
-          "field": "metric_column",
+          "field": "value_column",
           "type": "string",
-          "description": "分析指标列"
+          "description": "分析指标列名"
         }
       ],
       "optional_fields": [
         {
-          "field": "trend_method",
+          "field": "analysis_type",
           "type": "string",
-          "default": "linear",
-          "options": ["linear", "polynomial", "seasonal_decompose"],
-          "description": "趋势分析方法"
+          "default": "comprehensive",
+          "options": ["trend_detection", "seasonality", "change_point", "comprehensive"],
+          "description": "分析类型：趋势检测、季节性分析、变点检测、综合分析"
         },
         {
-          "field": "seasonality",
-          "type": "string",
-          "default": "auto",
-          "options": ["auto", "daily", "weekly", "monthly", "yearly"],
-          "description": "季节性周期"
+          "field": "period",
+          "type": "integer",
+          "default": null,
+          "description": "季节性周期，null时自动检测"
         }
       ],
       "data_format": "time_series",
-      "sql_template": "SELECT {time_column}, {metric_column} FROM {table_name} WHERE {time_conditions} ORDER BY {time_column}",
+      "sql_template": "SELECT {timestamp_column}, {value_column} FROM {table_name} WHERE {time_conditions} ORDER BY {timestamp_column}",
+      "payload_structure": {
+        "data_rows": "从SQL查询获取的时间序列数据",
+        "config": {
+          "timestamp_column": "时间列名",
+          "value_column": "指标列名",
+          "analysis_type": "分析类型",
+          "period": "季节性周期或null"
+        }
+      },
       "examples": [
         "分析销售数据的趋势变化",
-        "预测市场需求的长期趋势",
-        "识别股价的上升下降趋势"
+        "检测数据的季节性模式",
+        "识别时间序列的变点",
+        "综合分析数据趋势和周期性"
       ]
     },
     "profile": {
