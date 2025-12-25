@@ -83,6 +83,11 @@ def register_all_algorithms(nl2sql_client=None):
         from algorithm.trend_analysis.extractor import TrendAnalysisExtractor
         from algorithm.trend_analysis.processor import TrendAnalysisProcessor
         algorithm_registry.register_algorithm(TrendAnalysisExtractor(nl2sql_client), TrendAnalysisProcessor())
+
+        # 相似度分析算法
+        from algorithm.dtw.extractor import DTWExtractor
+        from algorithm.dtw.processor import DTWProcessor
+        algorithm_registry.register_algorithm(DTWExtractor(nl2sql_client), DTWProcessor())
         
         # 单变量预测算法
         from algorithm.univariate_forecast.extractor import UnivariateForecastExtractor
