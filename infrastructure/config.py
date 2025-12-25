@@ -99,10 +99,33 @@ class Settings(BaseSettings):
         ge=10
     )
     
+    # 服务发现配置
+    service_discovery_enabled: bool = Field(
+        default=True,
+        description="是否启用Nacos服务发现"
+    )
+    service_discovery_mode: str = Field(
+        default="nacos",
+        description="服务发现模式: nacos 或 static"
+    )
+    load_balance_strategy: str = Field(
+        default="round_robin",
+        description="负载均衡策略: round_robin, random, least_connections"
+    )
+    service_health_check_interval: int = Field(
+        default=30,
+        description="服务健康检查间隔（秒）",
+        ge=10
+    )
+    
     # NL2SQL服务配置
+    nl2sql_service_name: str = Field(
+        default="nl2sql-service",
+        description="NL2SQL服务在Nacos中的服务名称"
+    )
     nl2sql_base_url: str = Field(
         default="http://localhost:8080",
-        description="NL2SQL服务基础URL"
+        description="NL2SQL服务静态URL（禁用服务发现时使用）"
     )
     nl2sql_timeout: int = Field(
         default=30,
@@ -120,22 +143,41 @@ class Settings(BaseSettings):
         ge=0
     )
     
-    # 算法API配置
+    # 算法服务配置
+    clustering_service_name: str = Field(
+        default="clustering-service",
+        description="聚类服务名称"
+    )
     clustering_api_url: str = Field(
         default="http://localhost:8001",
-        description="聚类算法API URL"
+        description="聚类算法API静态URL"
+    )
+    
+    classification_service_name: str = Field(
+        default="classification-service",
+        description="分类服务名称"
     )
     classification_api_url: str = Field(
         default="http://localhost:8002",
-        description="分类算法API URL"
+        description="分类算法API静态URL"
+    )
+    
+    prediction_service_name: str = Field(
+        default="prediction-service",
+        description="预测服务名称"
     )
     prediction_api_url: str = Field(
         default="http://localhost:8003",
-        description="预测算法API URL"
+        description="预测算法API静态URL"
+    )
+    
+    anomaly_service_name: str = Field(
+        default="anomaly-detection-service",
+        description="异常检测服务名称"
     )
     anomaly_api_url: str = Field(
         default="http://localhost:8004",
-        description="异常检测API URL"
+        description="异常检测API静态URL"
     )
     forecast_service_url: str = Field(
         default="http://localhost:8100",
@@ -146,6 +188,79 @@ class Settings(BaseSettings):
         description="Forecast Service 请求超时时间（秒）",
         ge=1
     )
+    
+    association_service_name: str = Field(
+        default="association-service",
+        description="关联分析服务名称"
+    )
+    association_api_url: str = Field(
+        default="http://localhost:8005",
+        description="关联分析API静态URL"
+    )
+    
+    comparison_service_name: str = Field(
+        default="comparison-service",
+        description="对比分析服务名称"
+    )
+    comparison_api_url: str = Field(
+        default="http://localhost:8006",
+        description="对比分析API静态URL"
+    )
+    
+    similarity_service_name: str = Field(
+        default="similarity-service",
+        description="相似度分析服务名称"
+    )
+    similarity_api_url: str = Field(
+        default="http://localhost:8007",
+        description="相似度分析API静态URL"
+    )
+    
+    trend_service_name: str = Field(
+        default="trend-service",
+        description="趋势分析服务名称"
+    )
+    trend_api_url: str = Field(
+        default="http://localhost:8008",
+        description="趋势分析API静态URL"
+    )
+    
+    profile_service_name: str = Field(
+        default="profile-service",
+        description="用户画像服务名称"
+    )
+    profile_api_url: str = Field(
+        default="http://localhost:8009",
+        description="用户画像API静态URL"
+    )
+    
+    causality_service_name: str = Field(
+        default="causality-service",
+        description="因果分析服务名称"
+    )
+    causality_api_url: str = Field(
+        default="http://localhost:8010",
+        description="因果分析API静态URL"
+    )
+    
+    alert_service_name: str = Field(
+        default="alert-service",
+        description="预警系统服务名称"
+    )
+    alert_api_url: str = Field(
+        default="http://localhost:8011",
+        description="预警系统API静态URL"
+    )
+    
+    recommendation_service_name: str = Field(
+        default="recommendation-service",
+        description="推荐系统服务名称"
+    )
+    recommendation_api_url: str = Field(
+        default="http://localhost:8012",
+        description="推荐系统API静态URL"
+    )
+    
     algorithm_api_timeout: int = Field(
         default=60,
         description="算法API超时时间（秒）",

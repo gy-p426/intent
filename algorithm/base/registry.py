@@ -79,6 +79,11 @@ def register_all_algorithms(nl2sql_client=None):
         from algorithm.kmeans.processor import KMeansProcessor
         algorithm_registry.register_algorithm(KMeansExtractor(nl2sql_client), KMeansProcessor())
         
+        # DBSCAN异常检测算法
+        from algorithm.dbscan.extractor import DBSCANExtractor
+        from algorithm.dbscan.processor import DBSCANProcessor
+        algorithm_registry.register_algorithm(DBSCANExtractor(nl2sql_client), DBSCANProcessor())
+        
         # 趋势分析算法
         from algorithm.trend_analysis.extractor import TrendAnalysisExtractor
         from algorithm.trend_analysis.processor import TrendAnalysisProcessor

@@ -60,7 +60,7 @@ class TrendAnalysisExtractor(BaseAlgorithmExtractor):
 3. 不要创造不存在的列名
 4. 列名必须与数据库schema中的column_name完全一致
 5. 优先选择有注释说明的列
-6. normalized_query中一定写明返回的数据列（时间列+数值列）
+6. normalized_query中一定写明返回的数据列（时间列+数值列），并标名返回几列数据，否则无法正确解析，如
 
 输出JSON格式（严格遵守）：
 {{
