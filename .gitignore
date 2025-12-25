@@ -1,7 +1,7 @@
 .kiro/
-models/
 .env
 文档/
 .vscode/
 frontend/
 .idea/
+tests/
