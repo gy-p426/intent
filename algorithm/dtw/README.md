@@ -1,57 +1,69 @@
-# [算法名称] - 请修改为你的算法名称
+# DTW 动态时间规整算法
 
 ## 算法简介
 
-请在这里描述你的算法：
-
-- 算法的基本原理
-- 适用场景
-- 主要特点
+DTW（动态时间规整）是一种用于测量两个时间序列之间相似度的算法，通过动态规划找到两个序列的最优对齐路径。
+适用场景：时间序列分析、语音识别、手势识别、传感器数据匹配、金融时间序列对比等
+主要特点：（1）能够处理长度不同的时间序列（2）对时间轴上的非线性扭曲具有鲁棒性（3）相比欧氏距离更适合衡量时间序列的相似性
 
 ## 参数说明
 
 ### 必需参数
 
-- **param1**: 参数 1 的详细说明
-- **param2**: 参数 2 的详细说明
+- **time_column**:时间列名：用于数据排序
+- **time_series1**: 第一个时间序列数据所在的列名，该列应为数值型数据
+- **time_series2**: 第二个时间序列数据所在的列名，该列应为数值型数据
 
 ### 可选参数
 
-- **param3**: 参数 3 的详细说明，默认值：None
+- **window_size**: 规整窗口大小，用于限制路径搜索范围以提高计算效率，默认值：None（表示不限制窗口）
+- **distance_metric**: 距离度量方式，支持 "euclidean"（欧氏距离）、"manhattan"（曼哈顿距离）等，默认值："euclidean"
+- **normalize**:是否对序列进行归一化处理（缩放到 0-1 范围），默认值："True"
+- **step_pattern**:可选值"symmetric1"：标准对称模式，"symmetric2"：改进对称模式（推荐），"asymmetric"：非对称模式。默认值："symmetric2"
 
 ## 数据要求
 
-1. 至少需要 X 行数据
-2. 至少需要 X 个特征列
-3. 其他特殊要求...
+1.最小数据量：每个序列至少需要 2 个数据点 2.数据类型：time_series1 和 time_series2 必须是数值型 3.列的唯一性：time_series1 和 time_series2 不能是同一列 4.数据完整性：缺失值会被自动跳过，但建议预先处理
 
 ## 使用示例
 
 ### 示例 1
 
 ```
-用户问题: "示例问题1"
+用户问题: "分析过去一周温度和湿度的变化趋势相似度"
 预期输出:
 {
   "parameter_mapping": {
-    "param1": "实际列名1",
-    "param2": ["实际列名2", "实际列名3"],
-    "param3": null
-  }
+    "time_column": "record_time",
+    "time_series1": "temperature",
+    "time_series2": "humidity",
+    "window_size": null,
+    "distance_metric": "euclidean",
+    "normalize": true,
+    "step_pattern": "symmetric2"
+  },
+  "required_columns": ["record_time", "temperature", "humidity"],
+  "normalized_query": "使用DTW算法分析温度和湿度两列数值序列的相似度"
 }
 ```
 
 ### 示例 2
 
 ```
-用户问题: "示例问题2"
+用户问题："对比 11 月份和 12 月份实际销量的匹配程度"
 预期输出:
 {
-  "parameter_mapping": {
-    "param1": "实际列名1",
-    "param2": ["实际列名2"],
-    "param3": 5
-  }
+"parameter_mapping": {
+"time_column": "sale_date",
+"time_series1": "11_sales",
+"time_series2": "12_sales",
+"window_size": 5,
+"distance_metric": "euclidean",
+"normalize": false,
+"step_pattern": "symmetric2"
+},
+"required_columns": ["sale_date", "11_sales", "12_sales"],
+"normalized_query": "使用 DTW 算法分析 11 月和 12 月实际销量的相似度"
 }
 ```
 
@@ -60,7 +72,7 @@
 ### 1. 复制模板
 
 ```bash
-cp -r algorithm/template algorithm/your_algorithm_name
+cp -r algorithm/template algorithm/dtw
 ```
 
 ### 2. 修改文件名
