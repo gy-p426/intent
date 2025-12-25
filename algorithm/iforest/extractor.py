@@ -1,7 +1,7 @@
 """
 @Author      : Ayaki Shi
-@Date        : 2025/12/23 16:17 
-@Description : 密度聚类算法参数提取器
+@Date        : 2025/12/23 21:00
+@Description : 孤立森林算法参数提取器
 """
 
 import logging
@@ -11,7 +11,7 @@ from algorithm.models import AlgorithmType, DatabaseColumn
 
 logger = logging.getLogger(__name__)
 
-class DBSCANExtractor(BaseAlgorithmExtractor):
+class IFORESTExtractor(BaseAlgorithmExtractor):
 
     @property
     def algorithm_type(self) -> AlgorithmType:
@@ -19,7 +19,7 @@ class DBSCANExtractor(BaseAlgorithmExtractor):
 
     @property
     def algorithm_name(self) -> str:
-        return "dbscan"
+        return "iforest"
 
     async def build_extraction_prompt(
             self,
@@ -27,7 +27,7 @@ class DBSCANExtractor(BaseAlgorithmExtractor):
             database_schema: Optional[List[DatabaseColumn]] = None,
             window_id: str = "default"
     ) -> List[Dict[str, str]]:
-        """构建DBSCAN特定的参数提取提示词"""
+        """构建IFOREST特定的参数提取提示词"""
 
         # 从NL2SQL服务获取候选表信息和关键词
         schema_text, query_db_result = await self._get_candidate_tables_from_nl2sql(question, window_id)
@@ -35,13 +35,13 @@ class DBSCANExtractor(BaseAlgorithmExtractor):
         # 保存查询结果供后续使用
         self._last_query_db_result = query_db_result
 
-        system_prompt = f"""你是DBSCAN密度聚类分析专家。根据用户问题和数据库信息，提取聚类分析所需的参数。
+        system_prompt = f"""你是使用IFOREST孤立森林算法进行异常分析的专家。根据用户问题和数据库信息，提取IFOREST孤立森林算法所需的参数。
 
 重要：你必须严格按照以下规则输出JSON，确保参数名和列名完全匹配数据库中的实际列名。
 
-DBSCAN密度聚类分析要求：
+IFOREST孤立森林算法异常分析要求：
 1. id_column: 必须指定一个ID列，用于标识每个数据点
-2. feature_columns: 必须指定至少1个数值型特征列，用于聚类计算
+2. feature_columns: 必须指定至少1个数值型特征列，用于异常分析
 3. normalized_query：用于从text-to-sql算法获取数据的自然语言
 
 数据库可用列信息：
@@ -53,7 +53,7 @@ DBSCAN密度聚类分析要求：
 3. 不要创造不存在的列名
 4. 列名必须与数据库schema中的column_name完全一致
 5. 优先选择有注释说明的列，这样更容易理解业务含义
-6. normalized_query中一定写明返回的数据列注释（即id_column+feature_columns），并且标名返回几列数据，否则无法正确解析，如"获取销售日期、销售额，共2列数据"，！！！
+6. normalized_query中一定写明返回的数据列注释（即id_column+feature_columns），并且标名返回几列数据，否则无法正确解析，如"获取销售日期、销售额，共2列数据"！！！
 
 输出JSON格式（严格遵守）：
 {{
@@ -62,12 +62,12 @@ DBSCAN密度聚类分析要求：
     "feature_columns": ["销售笔数", "销售额",...],
   }},
   "required_columns": ["所有需要的实际列注释"],
-  "normalized_query": "获取A分公司不同销售日期的所有销售笔数、销售额，共3列数据"
+  "normalized_query": "获取A分公司不同销售日期的所有销售笔数、销售额"
 }}"""
 
         user_prompt = f"""用户问题: {question}
         
-请严格按照系统提示的规则分析用户需求，输出符合DBSCAN算法要求的JSON参数。
+请严格按照系统提示的规则分析用户需求，输出符合IFOREST孤立森林算法要求的JSON参数。
 
 关键要求：
 1. 从数据库schema中选择合适的ID列的列注释作为id_column
@@ -120,12 +120,12 @@ DBSCAN密度聚类分析要求：
         return "\n".join(lines)
 
     def parse_extraction_response(self, response: str) -> Dict[str, Any]:
-        """解析DBSCAN特定的LLM响应"""
+        """解析IFOREST特定的LLM响应"""
         try:
             # 基础JSON解析
             result = self._parse_json_response(response)
 
-            # DBSCAN特定验证和标准化
+            # IFOREST特定验证和标准化
             parameter_mapping = result.get('parameter_mapping', {})
 
             # 确保feature_columns是列表
@@ -137,28 +137,28 @@ DBSCAN密度聚类分析要求：
             return result
 
         except Exception as e:
-            logger.error(f"DBSCAN参数解析失败: {str(e)}")
-            raise ValueError(f"DBSCAN参数解析失败: {str(e)}")
+            logger.error(f"IFOREST参数解析失败: {str(e)}")
+            raise ValueError(f"IFOREST参数解析失败: {str(e)}")
 
     def validate_parameters(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        """验证DBSCAN参数"""
+        """验证IFOREST参数"""
         validated = {}
 
         # 验证ID列
         id_column = parameters.get('id_column')
         if not id_column:
-            raise ValueError("DBSCAN密度聚类需要指定ID列")
+            raise ValueError("IFOREST密度聚类需要指定ID列")
         validated['id_column'] = str(id_column)
 
         # 验证特征列
         feature_columns = parameters.get('feature_columns', [])
         if not feature_columns:
-            raise ValueError("DBSCAN密度聚类至少需要1个特征列")
+            raise ValueError("IFOREST孤立森林算法至少需要1个特征列")
         if not isinstance(feature_columns, list):
             feature_columns = [feature_columns]
         validated['feature_columns'] = feature_columns
-        if len(feature_columns) > 10:
-            raise ValueError(f"DBSCAN密度聚类最多支持10个特征列，当前传入了{len(feature_columns)}个")
+        if len(feature_columns) > 50:
+            raise ValueError(f"IFOREST孤立森林算法最多支持50个特征列，当前传入了{len(feature_columns)}个")
         validated['feature_columns'] = feature_columns
 
         return validated
