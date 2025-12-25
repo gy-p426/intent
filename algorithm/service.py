@@ -419,28 +419,62 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                     )
                             
                             else:
-                                # 同步任务结果
+                                # 同步任务结果 - 记录详细的算法结果日志
+                                algorithm_result = execution_response.result
+                                
+                                # 详细记录算法结果
+                                logger.info(f"算法执行完成: {algorithm_type.value}")
+                                logger.info(f"算法结果状态: {algorithm_result.get('status', 'unknown')}")
+                                
+                                # 根据算法类型记录特定信息
+                                if algorithm_type.value == "cluster" and algorithm_result.get('status') == 'success':
+                                    k_used = algorithm_result.get('k_used', 'unknown')
+                                    results = algorithm_result.get('results', [])
+                                    logger.info(f"聚类分析完成 - 使用K值: {k_used}, 结果数量: {len(results)}")
+                                    
+                                    # 计算聚类分布
+                                    if results:
+                                        cluster_distribution = {}
+                                        for item in results:
+                                            cluster_id = item.get('cluster_id', 'unknown')
+                                            cluster_distribution[cluster_id] = cluster_distribution.get(cluster_id, 0) + 1
+                                        logger.info(f"聚类分布: {cluster_distribution}")
+                                
+                                # 构建增强的算法执行响应
+                                algorithm_execution_data = {
+                                    "algorithm_result": algorithm_result,
+                                    "message": "算法执行完成",
+                                    "execution_summary": self._generate_algorithm_summary(algorithm_type, algorithm_result)
+                                }
+                                
                                 yield AlgorithmResponse(
                                     step=StreamingStep.ALGORITHM_EXECUTION,
                                     status="completed",
-                                    data={
-                                        "algorithm_result": execution_response.result,
-                                        "message": "算法执行完成"
-                                    },
+                                    data=algorithm_execution_data,
                                     timestamp=datetime.utcnow()
                                 )
                                 
-                                # 返回最终完成状态
+                                # 构建增强的最终完成响应
+                                final_data = {
+                                    "algorithm_type": algorithm_type.value,
+                                    "algorithm_result": algorithm_result,
+                                    "sql_statement": nl2sql_response.sql_statement,
+                                    "normalized_query": parameters.normalized_query,
+                                    "execution_summary": self._generate_algorithm_summary(algorithm_type, algorithm_result),
+                                    "data_summary": {
+                                        "input_rows": len(nl2sql_response.execution_result),
+                                        "sql_execution_time": nl2sql_response.execution_time_ms
+                                    },
+                                    "message": "所有步骤完成"
+                                }
+                                
+                                logger.info(f"完整算法流程执行完成: {algorithm_type.value}")
+                                logger.info(f"最终结果摘要: {final_data['execution_summary']}")
+                                
                                 yield AlgorithmResponse(
                                     step=StreamingStep.COMPLETED,
                                     status="completed",
-                                    data={
-                                        "algorithm_type": algorithm_type.value,
-                                        "algorithm_result": execution_response.result,
-                                        "sql_statement": nl2sql_response.sql_statement,
-                                        "normalized_query": parameters.normalized_query,
-                                        "message": "所有步骤完成"
-                                    },
+                                    data=final_data,
                                     timestamp=datetime.utcnow()
                                 )
                         
@@ -706,6 +740,14 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                     retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
                     context={'operation': 'classification_execution', 'algorithm_type': algorithm_type.value}
                 )
+            elif algorithm_type == AlgorithmType.ANOMALY:
+                return await self.retry_handler.retry_async(
+                    self.algorithm_executor.execute_anomaly_detection,
+                    algorithm_request,
+                    config=self.retry_configs['algorithm_api'],
+                    retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
+                    context={'operation': 'anomaly_detection_execution', 'algorithm_type': algorithm_type.value}
+                )
             else:
                 raise AlgorithmExecutionError(
                     f"暂不支持的算法类型: {algorithm_type}",
@@ -764,6 +806,84 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 details={'task_id': task_id},
                 original_error=e
             )
+    
+    def _generate_algorithm_summary(self, algorithm_type: AlgorithmType, algorithm_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        生成算法执行摘要
+        
+        Args:
+            algorithm_type: 算法类型
+            algorithm_result: 算法执行结果
+            
+        Returns:
+            Dict[str, Any]: 算法摘要信息
+        """
+        summary = {
+            "algorithm_type": algorithm_type.value,
+            "status": algorithm_result.get("status", "unknown"),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        try:
+            if algorithm_type == AlgorithmType.CLUSTER:
+                # 聚类算法摘要
+                if algorithm_result.get("status") == "success":
+                    k_used = algorithm_result.get("k_used", 0)
+                    results = algorithm_result.get("results", [])
+                    
+                    # 计算聚类分布
+                    cluster_distribution = {}
+                    for item in results:
+                        cluster_id = item.get("cluster_id", "unknown")
+                        cluster_distribution[cluster_id] = cluster_distribution.get(cluster_id, 0) + 1
+                    
+                    summary.update({
+                        "k_value_used": k_used,
+                        "total_data_points": len(results),
+                        "cluster_distribution": cluster_distribution,
+                        "cluster_count": len(cluster_distribution),
+                        "largest_cluster_size": max(cluster_distribution.values()) if cluster_distribution else 0,
+                        "smallest_cluster_size": min(cluster_distribution.values()) if cluster_distribution else 0
+                    })
+                    
+                    # 添加聚类质量指标（如果有的话）
+                    if "metrics" in algorithm_result:
+                        summary["quality_metrics"] = algorithm_result["metrics"]
+                
+            elif algorithm_type == AlgorithmType.CLASSIFY:
+                # 分类算法摘要
+                if algorithm_result.get("status") == "success":
+                    results = algorithm_result.get("results", [])
+                    
+                    # 统计预测结果分布
+                    prediction_distribution = {}
+                    confidence_scores = []
+                    
+                    for item in results:
+                        predicted_label = item.get("predicted_label", "unknown")
+                        prediction_distribution[predicted_label] = prediction_distribution.get(predicted_label, 0) + 1
+                        
+                        if "probability" in item:
+                            confidence_scores.append(item["probability"])
+                    
+                    summary.update({
+                        "total_predictions": len(results),
+                        "prediction_distribution": prediction_distribution,
+                        "unique_labels": len(prediction_distribution),
+                        "average_confidence": sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0,
+                        "min_confidence": min(confidence_scores) if confidence_scores else 0,
+                        "max_confidence": max(confidence_scores) if confidence_scores else 0
+                    })
+            
+            # 添加通用错误信息
+            if algorithm_result.get("status") != "success":
+                summary["error_message"] = algorithm_result.get("error", "未知错误")
+                
+        except Exception as e:
+            logger.warning(f"生成算法摘要时发生错误: {str(e)}")
+            summary["summary_generation_error"] = str(e)
+        
+        return summary
     
     def get_service_health(self) -> Dict[str, Any]:
         """获取服务健康状态"""

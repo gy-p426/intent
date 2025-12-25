@@ -53,6 +53,7 @@ DBSCAN密度聚类分析要求：
 3. 不要创造不存在的列名
 4. 列名必须与数据库schema中的column_name完全一致
 5. 优先选择有注释说明的列，这样更容易理解业务含义
+6. normalized_query中一定写明返回的数据列注释（即id_column+feature_columns），并且标名返回几列数据，否则无法正确解析，如"获取销售日期、销售额，共2列数据"，！！！
 
 输出JSON格式（严格遵守）：
 {{
@@ -61,7 +62,7 @@ DBSCAN密度聚类分析要求：
     "feature_columns": ["销售笔数", "销售额",...],
   }},
   "required_columns": ["所有需要的实际列注释"],
-  "normalized_query": "获取A分公司不同销售日期的所有销售笔数、销售额"
+  "normalized_query": "获取A分公司不同销售日期的所有销售笔数、销售额，共3列数据"
 }}"""
 
         user_prompt = f"""用户问题: {question}

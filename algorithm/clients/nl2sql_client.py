@@ -9,6 +9,7 @@ This client provides:
 - Response data parsing and validation
 - Comprehensive error handling and graceful degradation
 - Structured logging for service calls
+- Service discovery integration with Nacos
 """
 
 import logging
@@ -21,27 +22,61 @@ from algorithm.models import NL2SQLRequest, NL2SQLResponse
 from algorithm.interfaces import INL2SQLClient
 from algorithm.clients.nl2sql_response_processor import NL2SQLResponseProcessor
 from infrastructure.config import get_settings
+from infrastructure.service_discovery import get_service_discovery_client
 
 
 logger = logging.getLogger(__name__)
 
 
 class NL2SQLClient(INL2SQLClient):
-    """NL2SQL服务客户端实现"""
+    """NL2SQL服务客户端实现（支持服务发现）"""
     
     def __init__(self, base_url: Optional[str] = None, timeout: Optional[int] = None):
         """
         初始化NL2SQL客户端
         
         Args:
-            base_url: NL2SQL服务基础URL
+            base_url: NL2SQL服务基础URL（可选，优先使用服务发现）
             timeout: 请求超时时间（秒）
         """
         self.settings = get_settings()
-        self.base_url = base_url or self.settings.nl2sql_base_url
+        self.static_base_url = base_url or self.settings.nl2sql_base_url
         self.timeout = timeout or self.settings.nl2sql_timeout
         self.session: Optional[aiohttp.ClientSession] = None
         self.response_processor = NL2SQLResponseProcessor()
+        
+        # 服务发现客户端
+        self.service_discovery = get_service_discovery_client()
+        
+        logger.info(f"NL2SQL客户端初始化完成，服务发现模式: {self.settings.service_discovery_mode}")
+    
+    async def _get_service_url(self) -> str:
+        """
+        获取NL2SQL服务URL
+        
+        Returns:
+            str: 服务URL
+            
+        Raises:
+            ConnectionError: 无法获取服务URL时抛出
+        """
+        try:
+            # 尝试通过服务发现获取URL
+            discovered_url = await self.service_discovery.discover_service(
+                self.settings.nl2sql_service_name
+            )
+            
+            if discovered_url:
+                logger.debug(f"通过服务发现获取NL2SQL服务URL: {discovered_url}")
+                return discovered_url
+            else:
+                # 降级到静态配置
+                logger.warning(f"服务发现失败，使用静态配置: {self.static_base_url}")
+                return self.static_base_url
+                
+        except Exception as e:
+            logger.warning(f"服务发现异常，使用静态配置: {str(e)}")
+            return self.static_base_url
         
     async def _get_session(self) -> aiohttp.ClientSession:
         """获取HTTP会话，如果不存在则创建"""
@@ -79,9 +114,10 @@ class NL2SQLClient(INL2SQLClient):
                 "windowId": window_id
             }
             
-            # 发送HTTP请求
+            # 获取服务URL并发送HTTP请求
+            base_url = await self._get_service_url()
             session = await self._get_session()
-            url = f"{self.base_url.rstrip('/')}/api/query/query-db"
+            url = f"{base_url.rstrip('/')}/api/query/query-db"
             
             logger.debug(f"发送请求到: {url}")
             logger.debug(f"请求数据: {self._sanitize_log_data(request_data)}")
@@ -181,9 +217,10 @@ class NL2SQLClient(INL2SQLClient):
                 "sessionId": session_id
             }
             
-            # 发送HTTP请求
+            # 获取服务URL并发送HTTP请求
+            base_url = await self._get_service_url()
             session = await self._get_session()
-            url = f"{self.base_url.rstrip('/')}/api/query/query-sql"
+            url = f"{base_url.rstrip('/')}/api/query/query-sql"
             
             logger.debug(f"发送请求到: {url}")
             logger.debug(f"请求数据: {self._sanitize_log_data(request_data)}")
@@ -360,8 +397,9 @@ class NL2SQLClient(INL2SQLClient):
             bool: 服务是否健康
         """
         try:
+            base_url = await self._get_service_url()
             session = await self._get_session()
-            url = f"{self.base_url.rstrip('/')}/health"
+            url = f"{base_url.rstrip('/')}/health"
             
             async with session.get(url) as response:
                 return response.status == 200
@@ -595,8 +633,11 @@ class NL2SQLClient(INL2SQLClient):
             Dict[str, Any]: 统计信息
         """
         return {
-            "service_url": self.base_url,
+            "service_name": self.settings.nl2sql_service_name,
+            "static_url": self.static_base_url,
             "timeout": self.timeout,
+            "discovery_mode": self.settings.service_discovery_mode,
+            "discovery_enabled": self.settings.service_discovery_enabled,
             "response_stats": self.response_processor.get_stats()
         }
     
@@ -610,6 +651,9 @@ class NL2SQLClient(INL2SQLClient):
         start_time = datetime.utcnow()
         
         try:
+            # 获取当前使用的服务URL
+            current_url = await self._get_service_url()
+            
             # 尝试健康检查
             is_healthy = await self.health_check()
             
@@ -639,7 +683,9 @@ class NL2SQLClient(INL2SQLClient):
                 "response_time_ms": round(response_time, 2),
                 "error": error_message,
                 "timestamp": start_time.isoformat(),
-                "service_url": self.base_url
+                "current_url": current_url,
+                "service_name": self.settings.nl2sql_service_name,
+                "discovery_mode": self.settings.service_discovery_mode
             }
             
         except Exception as e:
@@ -651,5 +697,7 @@ class NL2SQLClient(INL2SQLClient):
                 "response_time_ms": round(response_time, 2),
                 "error": str(e),
                 "timestamp": start_time.isoformat(),
-                "service_url": self.base_url
+                "current_url": self.static_base_url,
+                "service_name": self.settings.nl2sql_service_name,
+                "discovery_mode": self.settings.service_discovery_mode
             }

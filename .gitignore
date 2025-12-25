@@ -5,3 +5,4 @@
 frontend/
 .idea/
 tests/
+text2vec-base-chinese/
