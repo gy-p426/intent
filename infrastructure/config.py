@@ -137,6 +137,15 @@ class Settings(BaseSettings):
         default="http://localhost:8004",
         description="异常检测API URL"
     )
+    forecast_service_url: str = Field(
+        default="http://localhost:8100",
+        description="Forecast Service 微服务地址（趋势分析、单变量预测、多变量预测）"
+    )
+    forecast_service_timeout: int = Field(
+        default=60,
+        description="Forecast Service 请求超时时间（秒）",
+        ge=1
+    )
     algorithm_api_timeout: int = Field(
         default=60,
         description="算法API超时时间（秒）",
@@ -302,7 +311,7 @@ class ConfigManager:
         # 验证URL格式
         url_fields = [
             'nl2sql_base_url', 'clustering_api_url', 'classification_api_url',
-            'prediction_api_url', 'anomaly_api_url'
+            'prediction_api_url', 'anomaly_api_url', 'forecast_service_url'
         ]
         
         for field in url_fields:

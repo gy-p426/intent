@@ -43,9 +43,11 @@ class AlgorithmExecutor(IAlgorithmExecutor):
         self.settings = get_settings()
         self.algorithm_apis = algorithm_apis or {
             "clustering": self.settings.clustering_api_url,
-            "classification": self.settings.classification_api_url
+            "classification": self.settings.classification_api_url,
+            "forecast": self.settings.forecast_service_url
         }
         self.timeout = self.settings.algorithm_api_timeout
+        self.forecast_timeout = self.settings.forecast_service_timeout
         self.session: Optional[aiohttp.ClientSession] = None
         self.data_processor = DataProcessor()
         self.task_manager = task_manager or TaskManager()
@@ -181,6 +183,340 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                 status="failed",
                 message=f"分类算法执行异常: {str(e)}"
             )
+    
+    # =========================================================================
+    # Forecast Service 执行方法
+    # =========================================================================
+    
+    async def _get_forecast_session(self) -> aiohttp.ClientSession:
+        """获取 Forecast Service 专用的 HTTP 会话"""
+        timeout = aiohttp.ClientTimeout(total=self.forecast_timeout)
+        return aiohttp.ClientSession(timeout=timeout)
+    
+    async def execute_trend_analysis(
+        self,
+        request: AlgorithmExecutionRequest
+    ) -> AlgorithmExecutionResponse:
+        """
+        执行趋势分析算法（调用 forecast_service）
+        
+        Args:
+            request: 算法执行请求，config 中需包含 analysis_type
+            
+        Returns:
+            AlgorithmExecutionResponse: 执行响应
+        """
+        logger.info("开始执行趋势分析算法")
+        
+        session = None
+        try:
+            config = request.config
+            analysis_type = config.get('analysis_type', 'decomposition')
+            
+            # 根据分析类型选择端点
+            if analysis_type == 'decomposition':
+                endpoint = "/api/v1/trend/decomposition"
+            elif analysis_type == 'detection':
+                endpoint = "/api/v1/trend/detection"
+            else:
+                return AlgorithmExecutionResponse(
+                    status="failed",
+                    message=f"不支持的分析类型: {analysis_type}"
+                )
+            
+            # 准备请求数据
+            request_data = self._prepare_trend_request(request, analysis_type)
+            
+            # 发送HTTP请求
+            session = await self._get_forecast_session()
+            base_url = self.algorithm_apis.get("forecast", "")
+            url = f"{base_url.rstrip('/')}{endpoint}"
+            
+            logger.debug(f"发送趋势分析请求到: {url}")
+            
+            async with session.post(url, json=request_data) as response:
+                if response.status == 200:
+                    result_data = await response.json()
+                    
+                    # 转换响应格式
+                    internal_result = self._convert_trend_response(result_data, analysis_type)
+                    
+                    return AlgorithmExecutionResponse(
+                        result=internal_result,
+                        status="success",
+                        message="趋势分析执行成功"
+                    )
+                else:
+                    error_text = await response.text()
+                    logger.error(f"趋势分析执行失败: {response.status} - {error_text}")
+                    
+                    return AlgorithmExecutionResponse(
+                        status="failed",
+                        message=f"趋势分析执行失败: {error_text}"
+                    )
+                    
+        except Exception as e:
+            logger.error(f"趋势分析执行异常: {str(e)}")
+            return AlgorithmExecutionResponse(
+                status="failed",
+                message=f"趋势分析执行异常: {str(e)}"
+            )
+        finally:
+            if session and not session.closed:
+                await session.close()
+    
+    def _prepare_trend_request(
+        self,
+        request: AlgorithmExecutionRequest,
+        analysis_type: str
+    ) -> Dict[str, Any]:
+        """准备趋势分析请求数据"""
+        config = request.config
+        data_rows = request.data_rows
+        
+        # 转换数据格式
+        api_data = [
+            {"timestamp": row["timestamp"], "value": row["value"]}
+            for row in data_rows
+            if "timestamp" in row and "value" in row
+        ]
+        
+        if analysis_type == 'decomposition':
+            payload = {"data": api_data}
+            if config.get('period') is not None:
+                payload["period"] = config["period"]
+            if config.get('decomposition_model'):
+                payload["decomposition_model"] = config["decomposition_model"]
+            if config.get('algorithm'):
+                payload["algorithm"] = config["algorithm"]
+        else:  # detection
+            payload = {"data": api_data}
+            if config.get('detection_method'):
+                payload["method"] = config["detection_method"]
+            if config.get('confidence_level') is not None:
+                payload["confidence_level"] = config["confidence_level"]
+            payload["include_seasonal_adjustment"] = config.get('include_seasonal_adjustment', True)
+        
+        return payload
+    
+    def _convert_trend_response(
+        self,
+        api_response: Dict[str, Any],
+        analysis_type: str
+    ) -> Dict[str, Any]:
+        """转换趋势分析响应为内部格式"""
+        metadata = api_response.get('metadata', {})
+        results = api_response.get('results', {})
+        
+        if analysis_type == 'decomposition':
+            return {
+                "decomposition": {
+                    "trend": results.get('trend', []),
+                    "seasonal": results.get('seasonal', []),
+                    "residual": results.get('residual', []),
+                },
+                "analysis_type": "decomposition",
+                "algorithm_used": metadata.get('algorithm_selected', 'unknown'),
+                "period_used": metadata.get('period_detected', 0),
+                "data_characteristics": metadata.get('data_characteristics', {}),
+                "data_points": metadata.get('data_points', 0),
+            }
+        else:  # detection
+            return {
+                "detection": results,
+                "analysis_type": "detection",
+                "method_used": metadata.get('method_selected', 'unknown'),
+                "data_characteristics": metadata.get('data_characteristics', {}),
+                "data_points": metadata.get('data_points', 0),
+            }
+    
+    async def execute_univariate_forecast(
+        self,
+        request: AlgorithmExecutionRequest
+    ) -> AlgorithmExecutionResponse:
+        """
+        执行单变量预测算法（调用 forecast_service）
+        
+        Args:
+            request: 算法执行请求
+            
+        Returns:
+            AlgorithmExecutionResponse: 执行响应
+        """
+        logger.info("开始执行单变量预测算法")
+        
+        session = None
+        try:
+            config = request.config
+            data_rows = request.data_rows
+            
+            # 准备请求数据
+            # 内部格式可能是 [{timestamp, value}, ...] 或 {timestamp: [], value: []}
+            if isinstance(data_rows, list) and len(data_rows) > 0:
+                if isinstance(data_rows[0], dict) and 'timestamp' in data_rows[0]:
+                    # 列表格式转换为数组格式
+                    timestamps = [row['timestamp'] for row in data_rows]
+                    values = [row['value'] for row in data_rows]
+                    api_data = {"timestamp": timestamps, "value": values}
+                else:
+                    api_data = data_rows[0].get('data', {})
+            else:
+                api_data = {"timestamp": [], "value": []}
+            
+            request_data = {
+                "data": api_data,
+                "config": {
+                    "forecast_horizon": config.get('forecast_horizon', 24),
+                    "include_confidence": config.get('include_confidence', True)
+                }
+            }
+            
+            # 发送HTTP请求
+            session = await self._get_forecast_session()
+            base_url = self.algorithm_apis.get("forecast", "")
+            url = f"{base_url.rstrip('/')}/api/v1/forecast/univariate"
+            
+            logger.debug(f"发送单变量预测请求到: {url}")
+            
+            async with session.post(url, json=request_data) as response:
+                if response.status == 200:
+                    result_data = await response.json()
+                    
+                    # 转换响应格式
+                    internal_result = {
+                        "success": result_data.get('success', True),
+                        "model_used": result_data.get('model_used', 'unknown'),
+                        "results": result_data.get('results', {}),
+                        "data_analysis": result_data.get('data_analysis', {})
+                    }
+                    
+                    return AlgorithmExecutionResponse(
+                        result=internal_result,
+                        status="success",
+                        message="单变量预测执行成功"
+                    )
+                else:
+                    error_text = await response.text()
+                    logger.error(f"单变量预测执行失败: {response.status} - {error_text}")
+                    
+                    return AlgorithmExecutionResponse(
+                        status="failed",
+                        message=f"单变量预测执行失败: {error_text}"
+                    )
+                    
+        except Exception as e:
+            logger.error(f"单变量预测执行异常: {str(e)}")
+            return AlgorithmExecutionResponse(
+                status="failed",
+                message=f"单变量预测执行异常: {str(e)}"
+            )
+        finally:
+            if session and not session.closed:
+                await session.close()
+    
+    async def execute_multivariate_forecast(
+        self,
+        request: AlgorithmExecutionRequest
+    ) -> AlgorithmExecutionResponse:
+        """
+        执行多变量预测算法（调用 forecast_service）
+        
+        Args:
+            request: 算法执行请求
+            
+        Returns:
+            AlgorithmExecutionResponse: 执行响应
+        """
+        logger.info("开始执行多变量预测算法")
+        
+        session = None
+        try:
+            config = request.config
+            data_rows = request.data_rows
+            
+            # 准备请求数据
+            request_data = {
+                "data": data_rows,
+                "config": {
+                    "target_column": config.get('target_column'),
+                    "feature_columns": config.get('feature_columns', []),
+                    "algorithm": config.get('algorithm', 'lightgbm'),
+                    "forecast_horizon": config.get('forecast_horizon', 14),
+                    "model_name": config.get('model_name')
+                }
+            }
+            
+            # 发送HTTP请求
+            session = await self._get_forecast_session()
+            base_url = self.algorithm_apis.get("forecast", "")
+            url = f"{base_url.rstrip('/')}/api/v1/forecast/multivariate"
+            
+            logger.debug(f"发送多变量预测请求到: {url}")
+            
+            async with session.post(url, json=request_data) as response:
+                if response.status == 200:
+                    result_data = await response.json()
+                    
+                    # 转换响应格式
+                    internal_result = {
+                        "success": result_data.get('success', True),
+                        "model_id": result_data.get('model_id'),
+                        "model_name": result_data.get('model_name'),
+                        "model_used": result_data.get('model_used', 'unknown'),
+                        "results": result_data.get('results', {}),
+                        "metrics": result_data.get('metrics', {}),
+                        "reused_model": result_data.get('reused_model', False)
+                    }
+                    
+                    return AlgorithmExecutionResponse(
+                        result=internal_result,
+                        status="success",
+                        message="多变量预测执行成功"
+                    )
+                else:
+                    error_text = await response.text()
+                    logger.error(f"多变量预测执行失败: {response.status} - {error_text}")
+                    
+                    return AlgorithmExecutionResponse(
+                        status="failed",
+                        message=f"多变量预测执行失败: {error_text}"
+                    )
+                    
+        except Exception as e:
+            logger.error(f"多变量预测执行异常: {str(e)}")
+            return AlgorithmExecutionResponse(
+                status="failed",
+                message=f"多变量预测执行异常: {str(e)}"
+            )
+        finally:
+            if session and not session.closed:
+                await session.close()
+    
+    async def forecast_service_health_check(self) -> bool:
+        """
+        检查 Forecast Service 健康状态
+        
+        Returns:
+            bool: 服务是否健康
+        """
+        session = None
+        try:
+            base_url = self.algorithm_apis.get("forecast", "")
+            if not base_url:
+                return False
+            
+            session = await self._get_forecast_session()
+            url = f"{base_url.rstrip('/')}/health"
+            
+            async with session.get(url) as response:
+                return response.status == 200
+                
+        except Exception as e:
+            logger.error(f"Forecast Service 健康检查失败: {str(e)}")
+            return False
+        finally:
+            if session and not session.closed:
+                await session.close()
     
     async def poll_async_task(self, task_id: str) -> AsyncGenerator[AsyncTaskResponse, None]:
         """
@@ -502,10 +838,29 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             )
             
             # 根据算法类型执行相应的算法
-            if "聚类" in algorithm_config.name or parameters.algorithm_type.value == "cluster":
+            algorithm_type = parameters.algorithm_type.value
+            algorithm_name = algorithm_config.name
+            
+            if "聚类" in algorithm_name or algorithm_type == "cluster":
                 return await self.execute_clustering(algorithm_request)
-            elif "分类" in algorithm_config.name or parameters.algorithm_type.value == "classify":
+            elif "分类" in algorithm_name or algorithm_type == "classify":
                 return await self.execute_classification(algorithm_request)
+            elif "趋势" in algorithm_name or algorithm_type == "trend":
+                return await self.execute_trend_analysis(algorithm_request)
+            elif "单变量" in algorithm_name or algorithm_type == "univariate_forecast":
+                return await self.execute_univariate_forecast(algorithm_request)
+            elif "多变量" in algorithm_name or algorithm_type == "multivariate_forecast":
+                return await self.execute_multivariate_forecast(algorithm_request)
+            elif algorithm_type == "predict":
+                # 预测类型需要根据子类型判断
+                sub_type = parameters.parameter_mapping.get('sub_algorithm', '')
+                if 'univariate' in sub_type or '单变量' in sub_type:
+                    return await self.execute_univariate_forecast(algorithm_request)
+                elif 'multivariate' in sub_type or '多变量' in sub_type:
+                    return await self.execute_multivariate_forecast(algorithm_request)
+                else:
+                    # 默认使用单变量预测
+                    return await self.execute_univariate_forecast(algorithm_request)
             else:
                 # 对于其他算法类型，可以扩展支持
                 logger.warning(f"暂不支持的算法类型: {parameters.algorithm_type}")

@@ -248,26 +248,37 @@ class MultivariateForecastProcessor(BaseAlgorithmProcessor):
         self,
         request: AlgorithmExecutionRequest
     ) -> Dict[str, Any]:
-        """执行多变量预测算法"""
+        """
+        执行多变量预测（调用远程 forecast_service）
+        
+        Args:
+            request: 算法执行请求
+            
+        Returns:
+            多变量预测结果字典
+        """
         try:
-            from algorithm.forecast_core.multivariate_forecast.core.predictor import MultivariatePredictor
+            from algorithm.executor.algorithm_executor import AlgorithmExecutor
             
-            predictor = MultivariatePredictor()
+            logger.info("执行多变量预测（远程服务）")
             
-            # 构建预测请求
-            forecast_request = {
-                "data": request.data_rows,
-                "config": request.config
-            }
+            # 使用 AlgorithmExecutor 调用远程 forecast_service
+            executor = AlgorithmExecutor()
+            try:
+                response = await executor.execute_multivariate_forecast(request)
+                
+                if response.status == "success":
+                    logger.info(f"多变量预测执行成功，使用模型: {response.result.get('model_used')}")
+                    return response.result
+                else:
+                    logger.warning(f"多变量预测执行失败: {response.message}")
+                    return {
+                        "success": False,
+                        "message": response.message
+                    }
+            finally:
+                await executor.close()
             
-            # 执行预测
-            result = predictor.forecast(forecast_request)
-            
-            return result
-            
-        except ImportError as e:
-            logger.error(f"导入多变量预测模块失败: {str(e)}")
-            raise ValueError(f"多变量预测模块未正确安装: {str(e)}")
         except Exception as e:
             logger.error(f"多变量预测执行失败: {str(e)}")
             raise ValueError(f"多变量预测执行失败: {str(e)}")

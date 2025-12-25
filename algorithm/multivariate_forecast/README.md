@@ -4,6 +4,23 @@
 
 多变量时间序列预测算法基于多个特征变量进行时间序列预测，通过利用目标变量与多个相关特征之间的关系来提高预测精度。支持多种机器学习算法，适合有多个影响因素的预测场景。
 
+## 架构说明
+
+本模块通过 `AlgorithmExecutor` 调用远程 `forecast_service` 微服务执行预测。
+
+```
+主项目                                    远程服务
+┌─────────────────────────────┐          ┌─────────────────────┐
+│ MultivariateForecastProcessor │  HTTP   │   forecast_service   │
+│   └─ AlgorithmExecutor        ├────────►│   (192.168.x.x:8100) │
+└─────────────────────────────┘          └─────────────────────┘
+```
+
+**配置远程服务地址**：在 `.env` 文件中设置：
+```
+FORECAST_SERVICE_URL=http://192.168.5.106:8100
+```
+
 ## 支持的算法
 
 | 算法 | 说明 | 适用场景 |
@@ -72,23 +89,9 @@
 }
 ```
 
-### 自动特征选择
-```
-用户问题: "基于历史数据预测未来30天的能耗"
-预期输出:
-{
-  "parameter_mapping": {
-    "timestamp_column": "timestamp",
-    "target_column": "energy_consumption",
-    "forecast_horizon": 30,
-    "algorithm": "lightgbm"
-  }
-}
-```
-
 ## 输出结果
 
-详细的返回参数说明请参考 [算法返回参数规范文档](../API_RESPONSE_SPEC.md)。
+详细的返回参数说明请参考 [算法返回参数规范文档](../趋势分析相关算法返回.md)。
 
 ```json
 {
@@ -104,7 +107,8 @@
     "rmse": 5.23,
     "mae": 3.45,
     "r2": 0.89
-  }
+  },
+  "reused_model": false
 }
 ```
 
@@ -123,7 +127,7 @@
 ```
 algorithm/multivariate_forecast/
 ├── __init__.py          # 模块初始化，导出主要类
-├── config.py            # 算法配置定义
+├── config.py            # 算法配置定义（MULTIVARIATE_FORECAST_CONFIG, MULTIVARIATE_FORECAST_RESPONSE）
 ├── extractor.py         # 参数提取器（MultivariateForecastExtractor）
 ├── processor.py         # 数据处理器（MultivariateForecastProcessor）
 └── README.md            # 本文档
@@ -143,12 +147,15 @@ algorithm/multivariate_forecast/
 2. 时间序列数据清洗和预处理
 3. 特征列数值转换
 4. 验证算法输入
-5. 调用核心预测模块执行预测
+5. 通过 `AlgorithmExecutor` 调用远程 `forecast_service` 执行预测
 
-## 依赖模块
+## 远程服务依赖
 
-本算法整合模块依赖 `algorithm/forecast_core/multivariate_forecast` 中的核心实现：
-- `MultivariatePredictor`: 多变量预测器核心类
+本模块通过 HTTP 调用远程 `forecast_service` 微服务：
+
+- **服务地址配置**：`infrastructure/config.py` 中的 `forecast_service_url`
+- **API 端点**：`POST /api/v1/forecast/multivariate`
+- **执行器**：`algorithm/executor/algorithm_executor.py` 中的 `execute_multivariate_forecast()`
 
 ## 注意事项
 
@@ -158,16 +165,14 @@ algorithm/multivariate_forecast/
 4. LightGBM和XGBoost需要安装对应的Python包
 5. 特征列中的缺失值会影响预测精度，建议提前处理
 6. 数据量越大，机器学习模型的效果越好
+7. **确保远程 `forecast_service` 服务已启动**
 
 ## 测试
 
 运行测试用例：
 ```bash
-# 运行多变量预测专项测试
+# 运行多变量预测结构测试
 python -m pytest tests/algorithm/test_multivariate_forecast.py -v
-
-# 运行所有预测算法集成测试
-python -m pytest tests/test_forecast_integration.py -k "multivariate" -v
 ```
 
 ## 开发指南
@@ -178,8 +183,5 @@ python -m pytest tests/test_forecast_integration.py -k "multivariate" -v
 ### 修改数据处理逻辑
 在 `processor.py` 中修改数据转换和验证逻辑。
 
-### 添加新的预测算法
-1. 在 `config.py` 中添加新算法的配置
-2. 在 `processor.py` 的 `validate_algorithm_input` 方法中添加新算法的验证
-3. 在核心模块中实现新算法
-4. 更新本文档
+### 修改远程调用逻辑
+在 `algorithm/executor/algorithm_executor.py` 的 `execute_multivariate_forecast()` 方法中修改。

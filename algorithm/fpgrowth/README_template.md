@@ -1,12 +1,8 @@
-# [算法名称] - 请修改为你的算法名称
+# FP-Growth 关联分析算法
 
 ## 算法简介
 
-请在这里描述你的算法：
-
-- 算法的基本原理
-- 适用场景
-- 主要特点
+FP-Growth（Frequent Pattern Growth，频繁模式增长）是一种高效的关联规则挖掘算法，用于发现数据集中的频繁模式和关联规则。相比传统的 Apriori 算法，FP-Growth 通过构建 FP 树（Frequent Pattern Tree）避免了候选集生成，大幅提升了挖掘效率。：
 
 ## 参数说明
 
