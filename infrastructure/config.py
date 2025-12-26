@@ -180,7 +180,7 @@ class Settings(BaseSettings):
         description="异常检测API静态URL"
     )
     forecast_service_url: str = Field(
-        default="http://localhost:8100",
+        default="http://192.168.1.125:8100",
         description="Forecast Service 微服务地址（趋势分析、单变量预测、多变量预测）"
     )
     forecast_service_timeout: int = Field(

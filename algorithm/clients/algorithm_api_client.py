@@ -174,6 +174,11 @@ class AlgorithmAPIClient:
                 execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
                 logger.info(f"{algorithm_type}算法API调用成功，耗时: {execution_time:.2f}ms")
                 
+                # 临时：记录完整的响应数据用于调试
+                if algorithm_type == "trend":
+                    import json
+                    logger.info(f"趋势分析完整响应数据: {json.dumps(response_data, indent=2, ensure_ascii=False)}")
+                
                 # 记录响应结果摘要
                 self._log_response_summary(algorithm_type, response_data)
                 
@@ -433,6 +438,33 @@ class AlgorithmAPIClient:
             "config": config
         }
         return await self.call_algorithm_api("anomaly", "/anomaly/dbscan", "POST", payload)
+    
+    async def call_trend_analysis_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        调用趋势分析API
+        
+        Args:
+            data_rows: 时间序列数据
+            config: 趋势分析配置
+            
+        Returns:
+            Dict[str, Any]: 趋势分析结果
+        """
+        analysis_type = config.get('analysis_type', 'decomposition')
+        
+        # 根据分析类型选择端点
+        if analysis_type == 'decomposition':
+            endpoint = "/api/v1/trend/decomposition"
+        elif analysis_type == 'detection':
+            endpoint = "/api/v1/trend/detection"
+        else:
+            raise ValueError(f"不支持的趋势分析类型: {analysis_type}")
+        
+        payload = {
+            "data": data_rows,  # 改为 "data" 以匹配远程服务期望的格式
+            "config": config
+        }
+        return await self.call_algorithm_api("trend", endpoint, "POST", payload)
     
     async def query_task_status(self, algorithm_type: str, task_id: str) -> Dict[str, Any]:
         """

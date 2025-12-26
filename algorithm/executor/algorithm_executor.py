@@ -254,70 +254,58 @@ class AlgorithmExecutor(IAlgorithmExecutor):
         request: AlgorithmExecutionRequest
     ) -> AlgorithmExecutionResponse:
         """
-        执行趋势分析算法（调用 forecast_service）
+        执行趋势分析算法
         
         Args:
-            request: 算法执行请求，config 中需包含 analysis_type
+            request: 算法执行请求
             
         Returns:
             AlgorithmExecutionResponse: 执行响应
         """
         logger.info("开始执行趋势分析算法")
+        logger.info(f"输入数据行数: {len(request.data_rows)}")
+        logger.info(f"趋势分析配置: {request.config}")
         
-        session = None
         try:
-            config = request.config
-            analysis_type = config.get('analysis_type', 'decomposition')
-            
-            # 根据分析类型选择端点
-            if analysis_type == 'decomposition':
-                endpoint = "/api/v1/trend/decomposition"
-            elif analysis_type == 'detection':
-                endpoint = "/api/v1/trend/detection"
-            else:
-                return AlgorithmExecutionResponse(
-                    status="failed",
-                    message=f"不支持的分析类型: {analysis_type}"
-                )
-            
-            # 准备请求数据
-            request_data = self._prepare_trend_request(request, analysis_type)
-            
-            # 发送HTTP请求
-            session = await self._get_forecast_session()
-            base_url = self.algorithm_apis.get("forecast", "")
-            url = f"{base_url.rstrip('/')}{endpoint}"
-            
-            logger.debug(f"发送趋势分析请求到: {url}")
-            
-            async with session.post(url, json=request_data) as response:
-                if response.status == 200:
-                    result_data = await response.json()
-                    
-                    # 转换响应格式
-                    internal_result = self._convert_trend_response(result_data, analysis_type)
-                    
-                    return AlgorithmExecutionResponse(
-                        result=internal_result,
-                        status="success",
-                        message="趋势分析执行成功"
-                    )
-                else:
-                    error_text = await response.text()
-                    logger.error(f"趋势分析执行失败: {response.status} - {error_text}")
-                    
-                    return AlgorithmExecutionResponse(
-                        status="failed",
-                        message=f"趋势分析执行失败: {error_text}"
-                    )
-                    
-        except Exception as e:
-            logger.error(f"趋势分析执行异常: {str(e)}")
-            return AlgorithmExecutionResponse(
-                status="failed",
-                message=f"趋势分析执行异常: {str(e)}"
+            # 使用新的算法API客户端
+            result_data = await self.algorithm_client.call_trend_analysis_api(
+                data_rows=request.data_rows,
+                config=request.config
             )
-        finally:
+            
+            logger.info("趋势分析算法执行成功")
+            logger.info(f"算法返回状态: {result_data.get('status', 'unknown')}")
+            
+            # 临时：将完整的返回结果显示在readable_result中，便于调试
+            import json
+            readable_result = f"趋势分析完整返回结果：\n{json.dumps(result_data, indent=2, ensure_ascii=False)}"
+            
+            if result_data.get('status') == 'success':
+                logger.info("趋势分析结果获取成功")
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="success",
+                    message="趋势分析执行成功",
+                    readable_result=readable_result
+                )
+            else:
+                error_msg = result_data.get('error', result_data.get('message', '未知错误'))
+                logger.error(f"趋势分析执行失败: {error_msg}")
+                return AlgorithmExecutionResponse(
+                    result=result_data,  # 即使失败也返回完整结果用于调试
+                    status="error",
+                    message=f"趋势分析执行失败: {error_msg}",
+                    readable_result=readable_result
+                )
+                
+        except Exception as e:
+            logger.error(f"趋势分析执行失败: {str(e)}")
+            return AlgorithmExecutionResponse(
+                result={},
+                status="error",
+                message=f"趋势分析执行失败: {str(e)}",
+                readable_result=f"趋势分析异常：{str(e)}"
+            )
             if session and not session.closed:
                 await session.close()
     

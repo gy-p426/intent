@@ -44,6 +44,20 @@ class TrendAnalysisProcessor(BaseAlgorithmProcessor):
             timestamp_column = param_mapping.get('timestamp_column')
             value_column = param_mapping.get('value_column')
             
+            # 添加调试日志
+            logger.info(f"期望的时间字段名: {timestamp_column}")
+            logger.info(f"期望的数值字段名: {value_column}")
+            
+            if sql_result:
+                actual_fields = list(sql_result[0].keys())
+                logger.info(f"SQL返回的实际字段名: {actual_fields}")
+                
+                # 检查字段名是否匹配
+                if timestamp_column not in actual_fields:
+                    logger.warning(f"时间字段 '{timestamp_column}' 不在SQL结果中，实际字段: {actual_fields}")
+                if value_column not in actual_fields:
+                    logger.warning(f"数值字段 '{value_column}' 不在SQL结果中，实际字段: {actual_fields}")
+            
             # 转换数据格式为趋势分析所需格式
             converted_data = await self._convert_to_time_series_format(
                 sql_result, timestamp_column, value_column

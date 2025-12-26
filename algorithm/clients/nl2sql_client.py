@@ -214,7 +214,7 @@ class NL2SQLClient(INL2SQLClient):
                 "candidateTables": candidate_tables,
                 "mergedKeywords": merged_keywords,
                 "windowId": window_id,
-                "sessionId": session_id
+                "sessionId": session_id or "default-session"  # 如果会话ID为空，使用默认值
             }
             
             # 获取服务URL并发送HTTP请求
@@ -438,8 +438,9 @@ class NL2SQLClient(INL2SQLClient):
         if len(request.question) > 1000:
             raise ValueError("查询问题长度不能超过1000个字符")
         
-        if not request.session_id or not request.session_id.strip():
-            raise ValueError("会话ID不能为空")
+        # 会话ID可以为空，不进行验证
+        # if not request.session_id or not request.session_id.strip():
+        #     raise ValueError("会话ID不能为空")
         
         if not request.window_id or not request.window_id.strip():
             raise ValueError("窗口ID不能为空")

@@ -67,7 +67,7 @@ class AlgorithmRequest(BaseModel):
     """算法请求模型"""
     question: str = Field(..., min_length=1, max_length=1000, description="用户自然语言查询")
     window_id: str = Field(default="default", description="窗口ID")
-    session_id: str = Field(..., description="会话ID")
+    session_id: str = Field(default="", description="会话ID（可选）")
     stream: bool = Field(default=True, description="是否流式返回")
 
 
