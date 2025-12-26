@@ -778,6 +778,22 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                     retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
                     context={'operation': 'anomaly_detection_execution', 'algorithm_type': algorithm_type.value}
                 )
+            # elif algorithm_type == AlgorithmType.DBSCAN:
+            #     return await self.retry_handler.retry_async(
+            #         self.algorithm_executor.execute_dbscan,
+            #         algorithm_request,
+            #         config=self.retry_configs['algorithm_api'],
+            #         retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
+            #         context={'operation': 'dbscan_execution', 'algorithm_type': algorithm_type.value}
+            #     )
+            # elif algorithm_type == AlgorithmType.IFOREST:
+            #     return await self.retry_handler.retry_async(
+            #         self.algorithm_executor.execute_iforest,
+            #         algorithm_request,
+            #         config=self.retry_configs['algorithm_api'],
+            #         retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
+            #         context={'operation': 'iforest_execution', 'algorithm_type': algorithm_type.value}
+            #     )
             elif algorithm_type == AlgorithmType.TREND:
                 return await self.retry_handler.retry_async(
                     self.algorithm_executor.execute_trend_analysis,
@@ -1011,6 +1027,12 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 return self._format_classification_result(algorithm_result, original_data)
             elif algorithm_type == AlgorithmType.TREND:
                 return self._format_trend_result(algorithm_result, original_data)
+            elif algorithm_type == AlgorithmType.ANOMALY:
+                return self._format_anomaly_result(algorithm_result, original_data)
+            # elif algorithm_type == AlgorithmType.DBSCAN:
+            #     return self._format_dbscan_result(algorithm_result, original_data)
+            # elif algorithm_type == AlgorithmType.IFOREST:
+            #     return self._format_iforest_result(algorithm_result, original_data)
             else:
                 return {
                     "summary": f"算法执行状态: {algorithm_result.get('status', '未知')}",
@@ -1237,6 +1259,318 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             "simple_view": simple_view,
             "technical_details": technical_details,
             "interpretation": interpretation if interpretation else f"在分析的{len(original_data)}个数据点中，检测到{direction_chinese}趋势模式"
+        }
+    
+    def _format_anomaly_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        格式化异常检测算法结果（统一的异常检测格式化）
+        
+        Args:
+            algorithm_result: 异常检测算法结果
+            original_data: 原始数据
+            
+        Returns:
+            Dict[str, Any]: 格式化后的异常检测结果
+        """
+        success = algorithm_result.get('success', False)
+        status = algorithm_result.get('status', 'unknown')
+        
+        if not success and status != 'success':
+            return {
+                "summary": f"异常检测失败: {algorithm_result.get('message', '未知错误')}",
+                "status": "failed",
+                "data_points": len(original_data)
+            }
+        
+        # 解析新的返回格式
+        results = algorithm_result.get('results', [])
+        
+        # 统计异常点和正常点
+        anomalies = []
+        normal_points = []
+        clusters = {}
+        
+        for item in results:
+            cluster_id = item.get('cluster_id')
+            item_id = item.get('id')
+            
+            if cluster_id == -1:
+                # cluster_id = -1 表示异常点
+                anomalies.append(item)
+            else:
+                # cluster_id >= 0 表示正常聚类点
+                normal_points.append(item)
+                if cluster_id not in clusters:
+                    clusters[cluster_id] = []
+                clusters[cluster_id].append(item)
+        
+        total_points = len(results)
+        anomaly_count = len(anomalies)
+        normal_count = len(normal_points)
+        cluster_count = len(clusters)
+        
+        # 计算异常比例
+        anomaly_rate = (anomaly_count / total_points * 100) if total_points > 0 else 0
+        
+        # 构建主要描述
+        if cluster_count > 0:
+            # 有正常聚类的情况
+            main_description = f"异常检测完成，在{total_points}个数据点中检测到{anomaly_count}个异常点（异常率{anomaly_rate:.1f}%），{normal_count}个正常点，形成{cluster_count}个聚类。"
+            algorithm_type_desc = "基于DBSCAN密度聚类的异常检测"
+        else:
+            # 全部都是异常点的情况
+            main_description = f"异常检测完成，在{total_points}个数据点中检测到{anomaly_count}个异常点（异常率{anomaly_rate:.1f}%），未形成有效聚类。"
+            algorithm_type_desc = "基于DBSCAN密度聚类的异常检测"
+        
+        # 构建详细分析结果
+        analysis_details = {
+            "总数据点": total_points,
+            "异常点数量": anomaly_count,
+            "正常点数量": normal_count,
+            "异常率": f"{anomaly_rate:.1f}%",
+            "算法类型": algorithm_type_desc
+        }
+        
+        if cluster_count > 0:
+            analysis_details["聚类数量"] = cluster_count
+            # 添加聚类分布信息
+            cluster_distribution = {f"聚类{cid}": len(items) for cid, items in clusters.items()}
+            analysis_details["聚类分布"] = cluster_distribution
+        
+        # 构建简化视图
+        simple_view = {
+            "异常检测": f"发现{anomaly_count}个异常点",
+            "异常率": f"{anomaly_rate:.1f}%",
+            "状态": "检测完成"
+        }
+        
+        if cluster_count > 0:
+            simple_view["聚类结果"] = f"形成{cluster_count}个聚类"
+        else:
+            simple_view["聚类结果"] = "未形成有效聚类"
+        
+        # 构建异常点详情（显示前10个，包含实际数据）
+        anomaly_details = []
+        if anomalies:
+            for i, anomaly in enumerate(anomalies[:10]):
+                # 提取异常点的所有数据字段，不只是id
+                anomaly_info = {"cluster_id": -1}
+                
+                # 复制异常点的所有字段（除了cluster_id）
+                for key, value in anomaly.items():
+                    if key != 'cluster_id':
+                        anomaly_info[key] = value
+                
+                # 如果没有id字段，生成一个标识
+                if 'id' not in anomaly_info:
+                    anomaly_info['id'] = f'异常点{i+1}'
+                
+                anomaly_details.append(anomaly_info)
+        
+        # 构建正常点详情（显示前5个，包含实际数据）
+        normal_details = []
+        if normal_points:
+            for i, normal in enumerate(normal_points[:5]):
+                # 提取正常点的所有数据字段
+                normal_info = {"cluster_id": normal.get('cluster_id', 0)}
+                
+                # 复制正常点的所有字段（除了cluster_id）
+                for key, value in normal.items():
+                    if key != 'cluster_id':
+                        normal_info[key] = value
+                
+                # 如果没有id字段，生成一个标识
+                if 'id' not in normal_info:
+                    normal_info['id'] = f'正常点{i+1}'
+                
+                normal_details.append(normal_info)
+        
+        return {
+            "summary": main_description,
+            "anomaly_count": anomaly_count,
+            "normal_count": normal_count,
+            "cluster_count": cluster_count,
+            "anomaly_rate": round(anomaly_rate, 1),
+            "data_points": total_points,
+            "analysis_details": analysis_details,
+            "simple_view": simple_view,
+            "anomaly_samples": anomaly_details,
+            "normal_samples": normal_details,
+            "interpretation": f"使用DBSCAN异常检测算法分析了{total_points}个数据点，识别出{anomaly_count}个异常点（cluster_id=-1）和{normal_count}个正常点"
+        }
+    
+    def _format_dbscan_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        格式化DBSCAN密度聚类异常检测结果
+        
+        Args:
+            algorithm_result: DBSCAN算法结果
+            original_data: 原始数据
+            
+        Returns:
+            Dict[str, Any]: 格式化后的DBSCAN结果
+        """
+        success = algorithm_result.get('success', False)
+        status = algorithm_result.get('status', 'unknown')
+        
+        if not success and status != 'success':
+            return {
+                "summary": f"DBSCAN密度聚类异常检测失败: {algorithm_result.get('message', '未知错误')}",
+                "status": "failed",
+                "data_points": len(original_data)
+            }
+        
+        # 提取结果信息
+        anomalies = algorithm_result.get('anomalies', [])
+        normal_points = algorithm_result.get('normal_points', [])
+        clusters = algorithm_result.get('clusters', [])
+        
+        total_points = len(original_data)
+        anomaly_count = len(anomalies)
+        normal_count = len(normal_points)
+        cluster_count = len(clusters)
+        
+        # 计算异常比例
+        anomaly_rate = (anomaly_count / total_points * 100) if total_points > 0 else 0
+        
+        # 构建主要描述
+        main_description = f"DBSCAN密度聚类异常检测完成，在{total_points}个数据点中检测到{anomaly_count}个异常点（异常率{anomaly_rate:.1f}%），{normal_count}个正常点，形成{cluster_count}个聚类。"
+        
+        # 构建详细分析结果
+        analysis_details = {
+            "总数据点": total_points,
+            "异常点数量": anomaly_count,
+            "正常点数量": normal_count,
+            "聚类数量": cluster_count,
+            "异常率": f"{anomaly_rate:.1f}%",
+            "算法类型": "DBSCAN密度聚类"
+        }
+        
+        # 构建简化视图
+        simple_view = {
+            "异常检测": f"发现{anomaly_count}个异常点",
+            "异常率": f"{anomaly_rate:.1f}%",
+            "聚类结果": f"形成{cluster_count}个聚类",
+            "状态": "检测完成"
+        }
+        
+        # 构建异常点详情（显示前10个）
+        anomaly_details = []
+        if anomalies:
+            for i, anomaly in enumerate(anomalies[:10]):
+                anomaly_id = anomaly.get('id', f'异常点{i+1}')
+                anomaly_details.append(anomaly_id)
+        
+        return {
+            "summary": main_description,
+            "anomaly_count": anomaly_count,
+            "normal_count": normal_count,
+            "cluster_count": cluster_count,
+            "anomaly_rate": round(anomaly_rate, 1),
+            "data_points": total_points,
+            "analysis_details": analysis_details,
+            "simple_view": simple_view,
+            "anomaly_samples": anomaly_details,
+            "interpretation": f"使用DBSCAN密度聚类算法分析了{total_points}个数据点，识别出{anomaly_count}个异常点和{cluster_count}个正常聚类"
+        }
+    
+    def _format_iforest_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        格式化IForest孤立森林异常检测结果
+        
+        Args:
+            algorithm_result: IForest算法结果
+            original_data: 原始数据
+            
+        Returns:
+            Dict[str, Any]: 格式化后的IForest结果
+        """
+        success = algorithm_result.get('success', False)
+        status = algorithm_result.get('status', 'unknown')
+        
+        if not success and status != 'success':
+            return {
+                "summary": f"IForest孤立森林异常检测失败: {algorithm_result.get('message', '未知错误')}",
+                "status": "failed",
+                "data_points": len(original_data)
+            }
+        
+        # 提取结果信息
+        anomalies = algorithm_result.get('anomalies', [])
+        normal_points = algorithm_result.get('normal_points', [])
+        anomaly_scores = algorithm_result.get('anomaly_scores', [])
+        
+        total_points = len(original_data)
+        anomaly_count = len(anomalies)
+        normal_count = len(normal_points)
+        
+        # 计算异常比例
+        anomaly_rate = (anomaly_count / total_points * 100) if total_points > 0 else 0
+        
+        # 计算异常分数统计
+        avg_anomaly_score = 0
+        max_anomaly_score = 0
+        min_anomaly_score = 0
+        
+        if anomaly_scores:
+            scores = [score.get('score', 0) for score in anomaly_scores if isinstance(score, dict)]
+            if scores:
+                avg_anomaly_score = sum(scores) / len(scores)
+                max_anomaly_score = max(scores)
+                min_anomaly_score = min(scores)
+        
+        # 构建主要描述
+        main_description = f"IForest孤立森林异常检测完成，在{total_points}个数据点中检测到{anomaly_count}个异常点（异常率{anomaly_rate:.1f}%），{normal_count}个正常点。"
+        
+        if avg_anomaly_score > 0:
+            main_description += f"平均异常分数为{avg_anomaly_score:.3f}。"
+        
+        # 构建详细分析结果
+        analysis_details = {
+            "总数据点": total_points,
+            "异常点数量": anomaly_count,
+            "正常点数量": normal_count,
+            "异常率": f"{anomaly_rate:.1f}%",
+            "算法类型": "IForest孤立森林"
+        }
+        
+        if avg_anomaly_score > 0:
+            analysis_details.update({
+                "平均异常分数": f"{avg_anomaly_score:.3f}",
+                "最高异常分数": f"{max_anomaly_score:.3f}",
+                "最低异常分数": f"{min_anomaly_score:.3f}"
+            })
+        
+        # 构建简化视图
+        simple_view = {
+            "异常检测": f"发现{anomaly_count}个异常点",
+            "异常率": f"{anomaly_rate:.1f}%",
+            "异常程度": "高" if avg_anomaly_score > 0.6 else "中" if avg_anomaly_score > 0.3 else "低",
+            "状态": "检测完成"
+        }
+        
+        # 构建异常点详情（显示前10个）
+        anomaly_details = []
+        if anomalies:
+            for i, anomaly in enumerate(anomalies[:10]):
+                anomaly_id = anomaly.get('id', f'异常点{i+1}')
+                anomaly_score = anomaly.get('score', 0)
+                anomaly_details.append({
+                    "id": anomaly_id,
+                    "score": round(anomaly_score, 3) if anomaly_score else 0
+                })
+        
+        return {
+            "summary": main_description,
+            "anomaly_count": anomaly_count,
+            "normal_count": normal_count,
+            "anomaly_rate": round(anomaly_rate, 1),
+            "avg_anomaly_score": round(avg_anomaly_score, 3),
+            "data_points": total_points,
+            "analysis_details": analysis_details,
+            "simple_view": simple_view,
+            "anomaly_samples": anomaly_details,
+            "interpretation": f"使用IForest孤立森林算法分析了{total_points}个数据点，基于数据点的孤立程度识别出{anomaly_count}个异常点"
         }
     
     def _generate_clustering_insights(self, cluster_distribution: Dict[int, int], k_value: int) -> List[str]:

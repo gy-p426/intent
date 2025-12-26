@@ -19,7 +19,7 @@ class DBSCANExtractor(BaseAlgorithmExtractor):
 
     @property
     def algorithm_name(self) -> str:
-        return "dbscan"
+        return "dbscan"  # 保留具体算法名称以便区分
 
     async def build_extraction_prompt(
             self,

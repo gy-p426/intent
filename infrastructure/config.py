@@ -172,13 +172,31 @@ class Settings(BaseSettings):
     )
     
     anomaly_service_name: str = Field(
-        default="anomaly-detection-service",
+        default="dbscan-service",  # 异常检测统一使用DBSCAN服务
         description="异常检测服务名称"
     )
     anomaly_api_url: str = Field(
-        default="http://localhost:8004",
+        default="http://localhost:8014",  # 异常检测统一使用DBSCAN服务URL
         description="异常检测API静态URL"
     )
+    
+    dbscan_service_name: str = Field(
+        default="dbscan-service",
+        description="DBSCAN密度聚类服务名称"
+    )
+    dbscan_api_url: str = Field(
+        default="http://localhost:8014",
+        description="DBSCAN密度聚类API静态URL"
+    )
+    
+    # iforest_service_name: str = Field(
+    #     default="iforest-service",
+    #     description="IForest孤立森林服务名称"
+    # )
+    # iforest_api_url: str = Field(
+    #     default="http://localhost:8015",
+    #     description="IForest孤立森林API静态URL"
+    # )
     forecast_service_url: str = Field(
         default="http://192.168.1.125:8100",
         description="Forecast Service 微服务地址（趋势分析、单变量预测、多变量预测）"

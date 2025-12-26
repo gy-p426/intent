@@ -48,7 +48,9 @@ class AlgorithmAPIClient:
             'clustering': self.settings.clustering_service_name,
             'classification': self.settings.classification_service_name,
             'prediction': self.settings.prediction_service_name,
-            'anomaly': self.settings.anomaly_service_name,
+            'anomaly': self.settings.dbscan_service_name,  # 异常检测统一使用DBSCAN服务
+            # 'dbscan': self.settings.dbscan_service_name,  # 注释掉单独的DBSCAN映射
+            # 'iforest': self.settings.iforest_service_name,  # 注释掉IForest映射
             'association': self.settings.association_service_name,
             'comparison': self.settings.comparison_service_name,
             'similarity': self.settings.similarity_service_name,
@@ -64,7 +66,9 @@ class AlgorithmAPIClient:
             'clustering': self.settings.clustering_api_url,
             'classification': self.settings.classification_api_url,
             'prediction': self.settings.prediction_api_url,
-            'anomaly': self.settings.anomaly_api_url,
+            'anomaly': self.settings.dbscan_api_url,  # 异常检测统一使用DBSCAN服务URL
+            # 'dbscan': self.settings.dbscan_api_url,  # 注释掉单独的DBSCAN映射
+            # 'iforest': self.settings.iforest_api_url,  # 注释掉IForest映射
             'association': self.settings.association_api_url,
             'comparison': self.settings.comparison_api_url,
             'similarity': self.settings.similarity_api_url,
@@ -437,7 +441,41 @@ class AlgorithmAPIClient:
             "data_rows": data_rows,
             "config": config
         }
-        return await self.call_algorithm_api("anomaly", "/anomaly/dbscan", "POST", payload)
+        return await self.call_algorithm_api("anomaly", "/api/dbscan", "POST", payload)
+    
+    # async def call_dbscan_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
+    #     """
+    #     调用DBSCAN密度聚类异常检测API
+    #
+    #     Args:
+    #         data_rows: 待检测的数据行
+    #         config: DBSCAN配置
+    #
+    #     Returns:
+    #         Dict[str, Any]: DBSCAN异常检测结果
+    #     """
+    #     payload = {
+    #         "data_rows": data_rows,
+    #         "config": config
+    #     }
+    #     return await self.call_algorithm_api("dbscan", "/dbscan/analyze", "POST", payload)
+    
+    # async def call_iforest_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
+    #     """
+    #     调用IForest孤立森林异常检测API
+    #     
+    #     Args:
+    #         data_rows: 待检测的数据行
+    #         config: IForest配置
+    #         
+    #     Returns:
+    #         Dict[str, Any]: IForest异常检测结果
+    #     """
+    #     payload = {
+    #         "data_rows": data_rows,
+    #         "config": config
+    #     }
+    #     return await self.call_algorithm_api("iforest", "/iforest/analyze", "POST", payload)
     
     async def call_trend_analysis_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
         """

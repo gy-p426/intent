@@ -16,7 +16,9 @@ class AlgorithmType(str, Enum):
     CLUSTER = "cluster"
     CLASSIFY = "classify"
     PREDICT = "predict"
-    ANOMALY = "anomaly"
+    ANOMALY = "anomaly"         # 异常检测统一类型
+    # DBSCAN = "dbscan"          # 注释掉，统一使用ANOMALY
+    # IFOREST = "iforest"        # 注释掉，统一使用ANOMALY
     ASSOCIATE = "associate"
     COMPARE = "compare"
     SIMILARITY = "similarity"
@@ -126,6 +128,7 @@ class AlgorithmExecutionResponse(BaseModel):
     task_id: Optional[str] = Field(None, description="异步任务ID")
     status: str = Field(..., description="执行状态")
     message: str = Field(..., description="状态消息")
+    readable_result: Optional[str] = Field(None, description="可读性格式化结果")
 
 
 class TaskStatus(str, Enum):

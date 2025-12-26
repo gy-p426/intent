@@ -209,10 +209,32 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             logger.info("DBSCAN异常检测算法执行成功")
             logger.info(f"算法返回状态: {result_data.get('status', 'unknown')}")
             
+            # 将完整的返回结果显示在readable_result中，便于调试和查看原始数据
+            import json
+            readable_result = f"DBSCAN异常检测完整返回结果：\n{json.dumps(result_data, indent=2, ensure_ascii=False)}"
+            
             if result_data.get('status') == 'success':
-                anomalies = result_data.get('anomalies', [])
-                normal_points = result_data.get('normal_points', [])
-                clusters = result_data.get('clusters', [])
+                # 解析新的返回格式
+                results = result_data.get('results', [])
+                
+                # 统计异常点和正常点
+                anomalies = []
+                normal_points = []
+                clusters = {}
+                
+                for item in results:
+                    cluster_id = item.get('cluster_id')
+                    item_id = item.get('id')
+                    
+                    if cluster_id == -1:
+                        # cluster_id = -1 表示异常点
+                        anomalies.append(item)
+                    else:
+                        # cluster_id >= 0 表示正常聚类点
+                        normal_points.append(item)
+                        if cluster_id not in clusters:
+                            clusters[cluster_id] = []
+                        clusters[cluster_id].append(item)
                 
                 logger.info(f"检测到异常点数量: {len(anomalies)}")
                 logger.info(f"正常点数量: {len(normal_points)}")
@@ -220,25 +242,140 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                 
                 # 显示异常检测结果摘要
                 if anomalies:
-                    logger.info(f"异常点示例: {anomalies[:3]}")  # 显示前3个异常点
+                    anomaly_ids = [item.get('id', 'unknown') for item in anomalies[:3]]
+                    logger.info(f"异常点示例: {anomaly_ids}")  # 显示前3个异常点ID
                 else:
                     logger.info("未检测到异常点")
+                
+                # 显示聚类摘要
+                if clusters:
+                    cluster_summary = {f"聚类{cid}": len(items) for cid, items in clusters.items()}
+                    logger.info(f"聚类分布: {cluster_summary}")
+                    
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="success",
+                    message="DBSCAN异常检测算法执行成功",
+                    readable_result=readable_result
+                )
             else:
+                error_msg = result_data.get('error', result_data.get('message', '未知错误'))
                 logger.error(f"DBSCAN异常检测算法返回错误状态: {result_data}")
-            
-            return AlgorithmExecutionResponse(
-                result=result_data,
-                status="success",
-                message="DBSCAN异常检测算法执行成功"
-            )
+                return AlgorithmExecutionResponse(
+                    result=result_data,  # 即使失败也返回完整结果用于调试
+                    status="error",
+                    message=f"DBSCAN异常检测算法执行失败: {error_msg}",
+                    readable_result=readable_result
+                )
             
         except Exception as e:
             logger.error(f"DBSCAN异常检测算法执行失败: {str(e)}")
             return AlgorithmExecutionResponse(
                 result={},
                 status="error",
-                message=f"DBSCAN异常检测算法执行失败: {str(e)}"
+                message=f"DBSCAN异常检测算法执行失败: {str(e)}",
+                readable_result=f"DBSCAN异常检测异常：{str(e)}"
             )
+    
+    # async def execute_dbscan(
+    #     self, 
+    #     request: AlgorithmExecutionRequest
+    # ) -> AlgorithmExecutionResponse:
+    #     """
+    #     执行DBSCAN密度聚类异常检测算法
+    #     
+    #     Args:
+    #         request: 算法执行请求
+    #         
+    #     Returns:
+    #         AlgorithmExecutionResponse: 执行响应
+    #     """
+    #     logger.info("开始执行DBSCAN密度聚类异常检测算法")
+    #     logger.info(f"输入数据行数: {len(request.data_rows)}")
+    #     logger.info(f"DBSCAN配置: {request.config}")
+    #     
+    #     try:
+    #         # 使用算法API客户端
+    #         result_data = await self.algorithm_client.call_anomaly_detection_api(
+    #             data_rows=request.data_rows,
+    #             config=request.config
+    #         )
+    #         
+    #         logger.info("DBSCAN密度聚类异常检测算法执行成功")
+    #         logger.info(f"算法返回状态: {result_data.get('status', 'unknown')}")
+    #         
+    #         if result_data.get('status') == 'success':
+    #             anomalies = result_data.get('anomalies', [])
+    #             normal_points = result_data.get('normal_points', [])
+    #             clusters = result_data.get('clusters', [])
+    #             
+    #             logger.info(f"检测到异常点数量: {len(anomalies)}")
+    #             logger.info(f"正常点数量: {len(normal_points)}")
+    #             logger.info(f"聚类数量: {len(clusters)}")
+    #         
+    #         return AlgorithmExecutionResponse(
+    #             result=result_data,
+    #             status="success",
+    #             message="DBSCAN密度聚类异常检测执行成功"
+    #         )
+    #         
+    #     except Exception as e:
+    #         logger.error(f"DBSCAN密度聚类异常检测执行失败: {str(e)}")
+    #         return AlgorithmExecutionResponse(
+    #             result={},
+    #             status="error",
+    #             message=f"DBSCAN密度聚类异常检测执行失败: {str(e)}"
+    #         )
+    
+    # async def execute_iforest(
+    #     self, 
+    #     request: AlgorithmExecutionRequest
+    # ) -> AlgorithmExecutionResponse:
+    #     """
+    #     执行IForest孤立森林异常检测算法
+    #     
+    #     Args:
+    #         request: 算法执行请求
+    #         
+    #     Returns:
+    #         AlgorithmExecutionResponse: 执行响应
+    #     """
+    #     logger.info("开始执行IForest孤立森林异常检测算法")
+    #     logger.info(f"输入数据行数: {len(request.data_rows)}")
+    #     logger.info(f"IForest配置: {request.config}")
+    #     
+    #     try:
+    #         # 使用算法API客户端
+    #         result_data = await self.algorithm_client.call_iforest_api(
+    #             data_rows=request.data_rows,
+    #             config=request.config
+    #         )
+    #         
+    #         logger.info("IForest孤立森林异常检测算法执行成功")
+    #         logger.info(f"算法返回状态: {result_data.get('status', 'unknown')}")
+    #         
+    #         if result_data.get('status') == 'success':
+    #             anomalies = result_data.get('anomalies', [])
+    #             normal_points = result_data.get('normal_points', [])
+    #             anomaly_scores = result_data.get('anomaly_scores', [])
+    #             
+    #             logger.info(f"检测到异常点数量: {len(anomalies)}")
+    #             logger.info(f"正常点数量: {len(normal_points)}")
+    #             logger.info(f"异常分数数量: {len(anomaly_scores)}")
+    #         
+    #         return AlgorithmExecutionResponse(
+    #             result=result_data,
+    #             status="success",
+    #             message="IForest孤立森林异常检测执行成功"
+    #         )
+    #         
+    #     except Exception as e:
+    #         logger.error(f"IForest孤立森林异常检测执行失败: {str(e)}")
+    #         return AlgorithmExecutionResponse(
+    #             result={},
+    #             status="error",
+    #             message=f"IForest孤立森林异常检测执行失败: {str(e)}"
+    #         )
     
     # =========================================================================
     # Forecast Service 执行方法
@@ -889,6 +1026,10 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                 else:
                     # 默认使用单变量预测
                     return await self.execute_univariate_forecast(algorithm_request)
+            # elif algorithm_type == "dbscan" or "dbscan" in algorithm_name.lower() or "密度聚类" in algorithm_name:
+            #     return await self.execute_dbscan(algorithm_request)
+            # elif algorithm_type == "iforest" or "iforest" in algorithm_name.lower() or "孤立森林" in algorithm_name:
+            #     return await self.execute_iforest(algorithm_request)
             elif "异常" in algorithm_config.name or parameters.algorithm_type.value == "anomaly":
                 return await self.execute_anomaly_detection(algorithm_request)
             else:

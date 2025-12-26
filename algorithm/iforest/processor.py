@@ -18,7 +18,7 @@ class IFORESTProcessor(BaseAlgorithmProcessor):
 
     @property
     def algorithm_type(self) -> AlgorithmType:
-        return AlgorithmType.ANOMALY
+        return AlgorithmType.IFOREST
 
     @property
     def algorithm_name(self) -> str:

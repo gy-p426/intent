@@ -22,7 +22,7 @@ class DBSCANProcessor(BaseAlgorithmProcessor):
 
     @property
     def algorithm_name(self) -> str:
-        return "dbscan"
+        return "dbscan"  # 保留具体算法名称以便区分
 
     async def convert_sql_result_to_algorithm_input(
             self,

@@ -786,9 +786,14 @@ class DataProcessor(IDataProcessor):
             algorithm_name_lower = algorithm_config.name.lower()
             
             # 优先匹配更具体的算法类型，避免关键词冲突
-            # 异常检测优先级最高，因为可能包含"聚类"等其他关键词
-            if "异常" in algorithm_config.name or "anomaly" in algorithm_name_lower or "dbscan" in algorithm_name_lower:
+            # 异常检测算法统一映射到ANOMALY类型
+            if "异常" in algorithm_config.name or "anomaly" in algorithm_name_lower:
                 return AlgorithmType.ANOMALY
+            # 注释掉具体异常检测算法的特殊处理，统一使用ANOMALY
+            # elif "dbscan" in algorithm_name_lower or "密度聚类" in algorithm_config.name:
+            #     return AlgorithmType.DBSCAN
+            # elif "iforest" in algorithm_name_lower or "孤立森林" in algorithm_config.name or "isolation forest" in algorithm_name_lower:
+            #     return AlgorithmType.IFOREST
             elif "聚类" in algorithm_config.name or "cluster" in algorithm_name_lower:
                 return AlgorithmType.CLUSTER
             elif "分类" in algorithm_config.name or "classif" in algorithm_name_lower:
