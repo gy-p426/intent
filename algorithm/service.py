@@ -802,6 +802,25 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                     retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
                     context={'operation': 'trend_analysis_execution', 'algorithm_type': algorithm_type.value}
                 )
+            elif algorithm_type == AlgorithmType.PREDICT:
+                # 预测类型需要根据子类型判断使用单变量还是多变量预测
+                sub_algorithm = algorithm_request.config.get('sub_algorithm', 'univariate')
+                if 'multivariate' in sub_algorithm or '多变量' in sub_algorithm:
+                    return await self.retry_handler.retry_async(
+                        self.algorithm_executor.execute_multivariate_forecast,
+                        algorithm_request,
+                        config=self.retry_configs['algorithm_api'],
+                        retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
+                        context={'operation': 'multivariate_forecast_execution', 'algorithm_type': algorithm_type.value}
+                    )
+                else:
+                    return await self.retry_handler.retry_async(
+                        self.algorithm_executor.execute_univariate_forecast,
+                        algorithm_request,
+                        config=self.retry_configs['algorithm_api'],
+                        retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
+                        context={'operation': 'univariate_forecast_execution', 'algorithm_type': algorithm_type.value}
+                    )
             else:
                 raise AlgorithmExecutionError(
                     f"暂不支持的算法类型: {algorithm_type}",
@@ -1027,6 +1046,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 return self._format_classification_result(algorithm_result, original_data)
             elif algorithm_type == AlgorithmType.TREND:
                 return self._format_trend_result(algorithm_result, original_data)
+            elif algorithm_type == AlgorithmType.PREDICT:
+                return self._format_forecast_result(algorithm_result, original_data)
             elif algorithm_type == AlgorithmType.ANOMALY:
                 return self._format_anomaly_result(algorithm_result, original_data)
             # elif algorithm_type == AlgorithmType.DBSCAN:
@@ -1397,6 +1418,111 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             "anomaly_samples": anomaly_details,
             "normal_samples": normal_details,
             "interpretation": f"使用DBSCAN异常检测算法分析了{total_points}个数据点，识别出{anomaly_count}个异常点（cluster_id=-1）和{normal_count}个正常点"
+        }
+    
+    def _format_forecast_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        格式化预测算法结果（单变量/多变量预测）
+        
+        Args:
+            algorithm_result: 预测算法结果
+            original_data: 原始数据
+            
+        Returns:
+            Dict[str, Any]: 格式化后的预测结果
+        """
+        import json
+        
+        success = algorithm_result.get('success', False)
+        
+        if not success:
+            return {
+                "summary": f"预测失败: {algorithm_result.get('message', '未知错误')}",
+                "status": "failed",
+                "data_points": len(original_data)
+            }
+        
+        # 提取关键信息
+        model_used = algorithm_result.get('model_used', 'unknown')
+        results = algorithm_result.get('results', {})
+        predictions = algorithm_result.get('predictions', [])
+        metrics = algorithm_result.get('metrics', {})
+        data_analysis = algorithm_result.get('data_analysis', {})
+        
+        # 获取预测值
+        forecast_values = results.get('forecast', [])
+        timestamps = results.get('timestamps', [])
+        
+        # 如果没有从results获取到，尝试从predictions获取
+        if not forecast_values and predictions:
+            forecast_values = [p.get('value') for p in predictions]
+            timestamps = [p.get('timestamp') for p in predictions]
+        
+        forecast_count = len(forecast_values)
+        
+        # 构建主要描述
+        if model_used and model_used != 'unknown':
+            main_description = f"预测完成，使用{model_used}模型，生成了{forecast_count}个预测值"
+        else:
+            main_description = f"预测完成，生成了{forecast_count}个预测值"
+        
+        # 添加指标信息
+        if metrics:
+            rmse = metrics.get('rmse')
+            mae = metrics.get('mae')
+            mape = metrics.get('mape')
+            if rmse:
+                main_description += f"，RMSE={rmse:.4f}"
+            if mae:
+                main_description += f"，MAE={mae:.4f}"
+            if mape:
+                main_description += f"，MAPE={mape:.2f}%"
+        
+        # 构建预测摘要
+        if forecast_values:
+            min_val = min(forecast_values)
+            max_val = max(forecast_values)
+            avg_val = sum(forecast_values) / len(forecast_values)
+            forecast_summary = {
+                "预测数量": forecast_count,
+                "最小值": round(min_val, 2),
+                "最大值": round(max_val, 2),
+                "平均值": round(avg_val, 2)
+            }
+        else:
+            forecast_summary = {"预测数量": 0}
+        
+        # 构建简化视图
+        simple_view = {
+            "模型": model_used,
+            "预测数量": forecast_count,
+            "历史数据点": len(original_data)
+        }
+        
+        # 构建预测详情（前5个和后5个）
+        forecast_details = []
+        if forecast_values and timestamps:
+            for i, (ts, val) in enumerate(zip(timestamps, forecast_values)):
+                if i < 5 or i >= len(timestamps) - 5:
+                    forecast_details.append({
+                        "timestamp": ts,
+                        "value": round(val, 2) if isinstance(val, (int, float)) else val
+                    })
+                elif i == 5:
+                    forecast_details.append({"note": f"... 省略 {len(timestamps) - 10} 个预测值 ..."})
+        
+        return {
+            "summary": main_description,
+            "model_used": model_used,
+            "forecast_count": forecast_count,
+            "data_points": len(original_data),
+            "forecast_summary": forecast_summary,
+            "simple_view": simple_view,
+            "forecast_details": forecast_details,
+            "metrics": metrics,
+            "data_analysis": data_analysis,
+            "full_response": json.dumps(algorithm_result, indent=2, ensure_ascii=False),
+            "interpretation": f"基于{len(original_data)}个历史数据点，使用{model_used}模型预测了未来{forecast_count}个时间点的值"
         }
     
     def _format_dbscan_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:

@@ -504,6 +504,60 @@ class AlgorithmAPIClient:
         }
         return await self.call_algorithm_api("trend", endpoint, "POST", payload)
     
+    async def call_univariate_forecast_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        调用单变量预测API
+        
+        Args:
+            data_rows: 时间序列数据，格式为 [{timestamp, value}, ...]
+            config: 预测配置
+            
+        Returns:
+            Dict[str, Any]: 预测结果
+        """
+        # 转换数据格式：从 [{timestamp, value}, ...] 转为 {timestamp: [], value: []}
+        if isinstance(data_rows, list) and len(data_rows) > 0:
+            if isinstance(data_rows[0], dict) and 'timestamp' in data_rows[0]:
+                timestamps = [row.get('timestamp') for row in data_rows]
+                values = [row.get('value') for row in data_rows]
+                api_data = {"timestamp": timestamps, "value": values}
+            else:
+                api_data = data_rows[0].get('data', {"timestamp": [], "value": []})
+        else:
+            api_data = {"timestamp": [], "value": []}
+        
+        payload = {
+            "data": api_data,
+            "config": {
+                "forecast_horizon": config.get('forecast_horizon', 24),
+                "include_confidence": config.get('include_confidence', True)
+            }
+        }
+        return await self.call_algorithm_api("trend", "/api/v1/forecast/univariate", "POST", payload)
+    
+    async def call_multivariate_forecast_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        调用多变量预测API
+        
+        Args:
+            data_rows: 多变量时序数据
+            config: 预测配置
+            
+        Returns:
+            Dict[str, Any]: 预测结果
+        """
+        payload = {
+            "data": data_rows,
+            "config": {
+                "target_column": config.get('target_column'),
+                "feature_columns": config.get('feature_columns', []),
+                "algorithm": config.get('algorithm', 'lightgbm'),
+                "forecast_horizon": config.get('forecast_horizon', 14),
+                "model_name": config.get('model_name')
+            }
+        }
+        return await self.call_algorithm_api("trend", "/api/v1/forecast/multivariate", "POST", payload)
+    
     async def query_task_status(self, algorithm_type: str, task_id: str) -> Dict[str, Any]:
         """
         查询异步任务状态

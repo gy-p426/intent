@@ -525,76 +525,49 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             AlgorithmExecutionResponse: 执行响应
         """
         logger.info("开始执行单变量预测算法")
+        logger.info(f"输入数据行数: {len(request.data_rows)}")
+        logger.info(f"单变量预测配置: {request.config}")
         
-        session = None
         try:
-            config = request.config
-            data_rows = request.data_rows
+            # 使用算法API客户端调用
+            result_data = await self.algorithm_client.call_univariate_forecast_api(
+                data_rows=request.data_rows,
+                config=request.config
+            )
             
-            # 准备请求数据
-            # 内部格式可能是 [{timestamp, value}, ...] 或 {timestamp: [], value: []}
-            if isinstance(data_rows, list) and len(data_rows) > 0:
-                if isinstance(data_rows[0], dict) and 'timestamp' in data_rows[0]:
-                    # 列表格式转换为数组格式
-                    timestamps = [row['timestamp'] for row in data_rows]
-                    values = [row['value'] for row in data_rows]
-                    api_data = {"timestamp": timestamps, "value": values}
-                else:
-                    api_data = data_rows[0].get('data', {})
+            logger.info("单变量预测算法执行成功")
+            logger.info(f"算法返回状态: {result_data.get('success', 'unknown')}")
+            
+            # 将完整的返回结果显示在readable_result中，便于调试
+            import json
+            readable_result = f"单变量预测完整返回结果：\n{json.dumps(result_data, indent=2, ensure_ascii=False)}"
+            
+            if result_data.get('success'):
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="success",
+                    message="单变量预测执行成功",
+                    readable_result=readable_result
+                )
             else:
-                api_data = {"timestamp": [], "value": []}
-            
-            request_data = {
-                "data": api_data,
-                "config": {
-                    "forecast_horizon": config.get('forecast_horizon', 24),
-                    "include_confidence": config.get('include_confidence', True)
-                }
-            }
-            
-            # 发送HTTP请求
-            session = await self._get_forecast_session()
-            base_url = self.algorithm_apis.get("forecast", "")
-            url = f"{base_url.rstrip('/')}/api/v1/forecast/univariate"
-            
-            logger.debug(f"发送单变量预测请求到: {url}")
-            
-            async with session.post(url, json=request_data) as response:
-                if response.status == 200:
-                    result_data = await response.json()
-                    
-                    # 转换响应格式
-                    internal_result = {
-                        "success": result_data.get('success', True),
-                        "model_used": result_data.get('model_used', 'unknown'),
-                        "results": result_data.get('results', {}),
-                        "data_analysis": result_data.get('data_analysis', {})
-                    }
-                    
-                    return AlgorithmExecutionResponse(
-                        result=internal_result,
-                        status="success",
-                        message="单变量预测执行成功"
-                    )
-                else:
-                    error_text = await response.text()
-                    logger.error(f"单变量预测执行失败: {response.status} - {error_text}")
-                    
-                    return AlgorithmExecutionResponse(
-                        status="failed",
-                        message=f"单变量预测执行失败: {error_text}"
-                    )
-                    
+                error_msg = result_data.get('message', '未知错误')
+                logger.error(f"单变量预测执行失败: {error_msg}")
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="error",
+                    message=f"单变量预测执行失败: {error_msg}",
+                    readable_result=readable_result
+                )
+                
         except Exception as e:
             logger.error(f"单变量预测执行异常: {str(e)}")
             return AlgorithmExecutionResponse(
-                status="failed",
-                message=f"单变量预测执行异常: {str(e)}"
+                result={},
+                status="error",
+                message=f"单变量预测执行异常: {str(e)}",
+                readable_result=f"单变量预测异常：{str(e)}"
             )
-        finally:
-            if session and not session.closed:
-                await session.close()
-    
+            
     async def execute_multivariate_forecast(
         self,
         request: AlgorithmExecutionRequest
@@ -609,69 +582,48 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             AlgorithmExecutionResponse: 执行响应
         """
         logger.info("开始执行多变量预测算法")
+        logger.info(f"输入数据行数: {len(request.data_rows)}")
+        logger.info(f"多变量预测配置: {request.config}")
         
-        session = None
         try:
-            config = request.config
-            data_rows = request.data_rows
+            # 使用算法API客户端调用
+            result_data = await self.algorithm_client.call_multivariate_forecast_api(
+                data_rows=request.data_rows,
+                config=request.config
+            )
             
-            # 准备请求数据
-            request_data = {
-                "data": data_rows,
-                "config": {
-                    "target_column": config.get('target_column'),
-                    "feature_columns": config.get('feature_columns', []),
-                    "algorithm": config.get('algorithm', 'lightgbm'),
-                    "forecast_horizon": config.get('forecast_horizon', 14),
-                    "model_name": config.get('model_name')
-                }
-            }
+            logger.info("多变量预测算法执行成功")
+            logger.info(f"算法返回状态: {result_data.get('success', 'unknown')}")
             
-            # 发送HTTP请求
-            session = await self._get_forecast_session()
-            base_url = self.algorithm_apis.get("forecast", "")
-            url = f"{base_url.rstrip('/')}/api/v1/forecast/multivariate"
+            # 将完整的返回结果显示在readable_result中，便于调试
+            import json
+            readable_result = f"多变量预测完整返回结果：\n{json.dumps(result_data, indent=2, ensure_ascii=False)}"
             
-            logger.debug(f"发送多变量预测请求到: {url}")
-            
-            async with session.post(url, json=request_data) as response:
-                if response.status == 200:
-                    result_data = await response.json()
-                    
-                    # 转换响应格式
-                    internal_result = {
-                        "success": result_data.get('success', True),
-                        "model_id": result_data.get('model_id'),
-                        "model_name": result_data.get('model_name'),
-                        "model_used": result_data.get('model_used', 'unknown'),
-                        "results": result_data.get('results', {}),
-                        "metrics": result_data.get('metrics', {}),
-                        "reused_model": result_data.get('reused_model', False)
-                    }
-                    
-                    return AlgorithmExecutionResponse(
-                        result=internal_result,
-                        status="success",
-                        message="多变量预测执行成功"
-                    )
-                else:
-                    error_text = await response.text()
-                    logger.error(f"多变量预测执行失败: {response.status} - {error_text}")
-                    
-                    return AlgorithmExecutionResponse(
-                        status="failed",
-                        message=f"多变量预测执行失败: {error_text}"
-                    )
-                    
+            if result_data.get('success'):
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="success",
+                    message="多变量预测执行成功",
+                    readable_result=readable_result
+                )
+            else:
+                error_msg = result_data.get('message', '未知错误')
+                logger.error(f"多变量预测执行失败: {error_msg}")
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="error",
+                    message=f"多变量预测执行失败: {error_msg}",
+                    readable_result=readable_result
+                )
+                
         except Exception as e:
             logger.error(f"多变量预测执行异常: {str(e)}")
             return AlgorithmExecutionResponse(
-                status="failed",
-                message=f"多变量预测执行异常: {str(e)}"
+                result={},
+                status="error",
+                message=f"多变量预测执行异常: {str(e)}",
+                readable_result=f"多变量预测异常：{str(e)}"
             )
-        finally:
-            if session and not session.closed:
-                await session.close()
     
     async def forecast_service_health_check(self) -> bool:
         """
