@@ -27,6 +27,9 @@ from algorithm.error_handler import (
     AlgorithmExecutionError, TaskTimeoutError, ErrorCode,
     retry_on_failure, error_handler, retry_handler
 )
+from llm.algorithm_result_analyzer import AlgorithmResultAnalyzer
+from llm.llm_client import LLMClient
+from infrastructure.config import get_settings
 
 
 logger = logging.getLogger(__name__)
@@ -95,6 +98,20 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         self.error_handler = error_handler or ErrorHandler()
         self.retry_handler = retry_handler or RetryHandler()
         
+        # 获取配置
+        self.settings = get_settings()
+        
+        # 初始化大模型结果分析器
+        self.result_analyzer = None
+        if self.settings.enable_llm_result_analysis:
+            try:
+                llm_client = LLMClient()
+                self.result_analyzer = AlgorithmResultAnalyzer(llm_client)
+                logger.info("大模型结果分析器初始化成功")
+            except Exception as e:
+                logger.warning(f"大模型结果分析器初始化失败: {str(e)}，将使用降级处理")
+                self.result_analyzer = None
+        
         # 如果没有提供算法执行器，创建默认实例
         if self.algorithm_executor is None:
             from algorithm.executor.algorithm_executor import AlgorithmExecutor
@@ -105,7 +122,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             'nl2sql': RetryConfig(max_attempts=3, base_delay=2.0, max_delay=30.0),
             'algorithm_api': RetryConfig(max_attempts=2, base_delay=1.0, max_delay=10.0),
             'database': RetryConfig(max_attempts=3, base_delay=1.0, max_delay=15.0),
-            'parameter_extraction': RetryConfig(max_attempts=2, base_delay=0.5, max_delay=5.0)
+            'parameter_extraction': RetryConfig(max_attempts=2, base_delay=0.5, max_delay=5.0),
+            'llm_analysis': RetryConfig(max_attempts=self.settings.llm_analysis_max_retries, base_delay=1.0, max_delay=10.0)
         }
         
         logger.info("算法集成服务初始化完成")
@@ -482,6 +500,15 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                 
                                 # 构建增强的最终完成响应
                                 algorithm_type_chinese = ALGORITHM_TYPE_CHINESE_MAP.get(algorithm_type, algorithm_type.value)
+                                
+                                # 使用大模型分析结果
+                                readable_result = await self._format_readable_result_with_llm(
+                                    algorithm_type, 
+                                    algorithm_result, 
+                                    nl2sql_response.execution_result,
+                                    parameters.normalized_query  # 传入用户原始问题
+                                )
+                                
                                 final_data = {
                                     "algorithm_type": algorithm_type.value,
                                     "algorithm_type_chinese": algorithm_type_chinese,
@@ -493,7 +520,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                         "input_rows": len(nl2sql_response.execution_result),
                                         "sql_execution_time": nl2sql_response.execution_time_ms
                                     },
-                                    "readable_result": self._format_readable_result(algorithm_type, algorithm_result, nl2sql_response.execution_result),
+                                    "readable_result": readable_result,
                                     "message": f"{algorithm_type_chinese}算法执行完成"
                                 }
                                 
@@ -1027,6 +1054,146 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         
         logger.info("资源清理完成")
     
+    async def _format_readable_result_with_llm(
+        self, 
+        algorithm_type: AlgorithmType, 
+        algorithm_result: Dict[str, Any], 
+        original_data: List[Dict[str, Any]],
+        user_question: str
+    ) -> Dict[str, Any]:
+        """
+        使用大模型分析格式化算法结果
+        
+        Args:
+            algorithm_type: 算法类型
+            algorithm_result: 算法执行结果
+            original_data: 原始数据
+            user_question: 用户原始问题
+            
+        Returns:
+            Dict[str, Any]: 包含大模型分析和技术细节的结果
+        """
+        try:
+            # 生成数据摘要
+            data_summary = {
+                "total_rows": len(original_data),
+                "algorithm_type": algorithm_type.value,
+                "execution_status": algorithm_result.get('status', 'unknown')
+            }
+            
+            # 如果启用了大模型分析且分析器可用
+            if self.settings.enable_llm_result_analysis and self.result_analyzer:
+                try:
+                    # 使用大模型分析结果
+                    llm_analysis = await asyncio.wait_for(
+                        self.result_analyzer.analyze_algorithm_result(
+                            user_question=user_question,
+                            algorithm_type=algorithm_type.value,
+                            algorithm_result=algorithm_result,
+                            original_data_summary=data_summary
+                        ),
+                        timeout=self.settings.llm_analysis_timeout
+                    )
+                    
+                    logger.info(f"大模型分析完成: {len(llm_analysis)} 字符")
+                    
+                except asyncio.TimeoutError:
+                    logger.warning(f"大模型分析超时 ({self.settings.llm_analysis_timeout}s)，使用降级处理")
+                    llm_analysis = None
+                except Exception as e:
+                    logger.warning(f"大模型分析失败: {str(e)}，使用降级处理")
+                    llm_analysis = None
+            else:
+                llm_analysis = None
+            
+            # 生成技术细节（原有的格式化逻辑）
+            technical_details = self._format_readable_result(algorithm_type, algorithm_result, original_data)
+            
+            # 如果大模型分析成功，返回新格式
+            if llm_analysis:
+                return {
+                    "llm_analysis": llm_analysis,
+                    "technical_details": technical_details,
+                    "analysis_source": "llm_enhanced"
+                }
+            else:
+                # 降级处理：返回原有格式，但标记为降级
+                if self.settings.llm_analysis_fallback_enabled:
+                    return {
+                        "llm_analysis": self._generate_fallback_analysis(algorithm_type, algorithm_result, user_question),
+                        "technical_details": technical_details,
+                        "analysis_source": "fallback"
+                    }
+                else:
+                    # 如果不启用降级，直接返回技术细节
+                    return technical_details
+                    
+        except Exception as e:
+            logger.error(f"格式化算法结果失败: {str(e)}")
+            # 最终降级：返回原有格式
+            return self._format_readable_result(algorithm_type, algorithm_result, original_data)
+    
+    def _generate_fallback_analysis(
+        self, 
+        algorithm_type: AlgorithmType, 
+        algorithm_result: Dict[str, Any],
+        user_question: str
+    ) -> str:
+        """
+        生成降级分析结果（当大模型分析失败时使用）
+        
+        Args:
+            algorithm_type: 算法类型
+            algorithm_result: 算法结果
+            user_question: 用户问题
+            
+        Returns:
+            str: 降级分析结果
+        """
+        try:
+            status = algorithm_result.get('status', 'unknown')
+            
+            if status == 'success':
+                # 根据算法类型生成基本分析
+                if algorithm_type == AlgorithmType.CLUSTER:
+                    k_used = algorithm_result.get('k_used', 0)
+                    results = algorithm_result.get('results', [])
+                    return f"根据您的问题「{user_question}」，我对数据进行了聚类分析。成功将 {len(results)} 个数据点分为 {k_used} 个不同的群组，每个群组代表具有相似特征的数据集合。这种分组可以帮助您发现数据中的潜在模式，为业务决策提供数据支持。"
+                
+                elif algorithm_type == AlgorithmType.CLASSIFY:
+                    results = algorithm_result.get('results', [])
+                    return f"针对您的问题「{user_question}」，我完成了分类分析，对 {len(results)} 个数据点进行了类别预测。分类结果可以帮助您了解数据的类别分布特征，识别不同类别的规律，为精准决策提供依据。"
+                
+                elif algorithm_type == AlgorithmType.ANOMALY:
+                    results = algorithm_result.get('results', [])
+                    anomalies = [r for r in results if r.get('cluster_id') == -1]
+                    anomaly_rate = len(anomalies) / len(results) * 100 if results else 0
+                    return f"基于您的问题「{user_question}」，我进行了异常检测分析。在 {len(results)} 个数据点中发现了 {len(anomalies)} 个异常点（异常率 {anomaly_rate:.1f}%）。这些异常点可能代表特殊情况、潜在问题或值得关注的特殊模式，建议进一步调查分析。"
+                
+                elif algorithm_type == AlgorithmType.TREND:
+                    results = algorithm_result.get('results', {})
+                    trend_direction = results.get('trend_direction', 'unknown')
+                    direction_map = {'increasing': '上升', 'decreasing': '下降', 'stable': '稳定'}
+                    direction_chinese = direction_map.get(trend_direction, '未知')
+                    return f"根据您的问题「{user_question}」，我分析了数据的趋势变化。结果显示数据呈现 {direction_chinese} 趋势，这个趋势信息可以帮助您理解数据的发展规律，预测未来可能的变化方向，为战略规划提供参考依据。"
+                
+                elif algorithm_type == AlgorithmType.PREDICT:
+                    predictions = algorithm_result.get('predictions', [])
+                    forecast_values = algorithm_result.get('results', {}).get('forecast', [])
+                    count = len(predictions) or len(forecast_values)
+                    return f"针对您的问题「{user_question}」，我完成了预测分析，生成了 {count} 个预测值。这些预测结果基于历史数据的模式和规律，可以帮助您了解未来可能的发展趋势，为提前规划和资源配置提供数据支持。"
+                
+                else:
+                    return f"根据您的问题「{user_question}」，我使用 {algorithm_type.value} 算法完成了数据分析。分析结果包含了基于您数据的深度洞察，揭示了数据中的关键模式和特征，可以为您的业务决策和策略制定提供有价值的数据支持。"
+            
+            else:
+                error_msg = algorithm_result.get('error', algorithm_result.get('message', '未知错误'))
+                return f"在处理您的问题「{user_question}」时，算法分析过程遇到了一些问题：{error_msg}。建议检查数据质量、调整分析参数或联系技术支持，以获得更好的分析结果。"
+                
+        except Exception as e:
+            logger.error(f"生成降级分析失败: {str(e)}")
+            return f"已完成对您问题「{user_question}」的算法分析，但结果处理过程中遇到问题。请查看技术细节了解具体的分析结果。"
+
     def _format_readable_result(self, algorithm_type: AlgorithmType, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         格式化算法结果为可读格式
