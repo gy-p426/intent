@@ -20,7 +20,7 @@ class AssociationProcessor(BaseAlgorithmProcessor):
     
     @property
     def algorithm_type(self) -> AlgorithmType:
-        return AlgorithmType.STATISTICAL
+        return AlgorithmType.ASSOCIATE
     
     @property
     def algorithm_name(self) -> str:
@@ -79,7 +79,9 @@ class AssociationProcessor(BaseAlgorithmProcessor):
                         "values": column2_values
                     }
                 },
-                "significance_level": significance_level
+                "options": {
+                    "significance_level": significance_level
+                }
             }
             
             logger.info(
@@ -164,8 +166,14 @@ class AssociationProcessor(BaseAlgorithmProcessor):
                 logger.error("数据为空")
                 return False
             
+            # 验证options字段
+            options = config.get('options', {})
+            if not isinstance(options, dict):
+                logger.error("配置中的options必须是字典类型")
+                return False
+            
             # 验证显著性水平
-            significance_level = config.get('significance_level', 0.05)
+            significance_level = options.get('significance_level', 0.05)
             if not isinstance(significance_level, (int, float)):
                 logger.error(f"显著性水平必须是数值: {significance_level}")
                 return False

@@ -17,7 +17,7 @@ class AssociationExtractor(BaseAlgorithmExtractor):
     
     @property
     def algorithm_type(self) -> AlgorithmType:
-        return AlgorithmType.STATISTICAL
+        return AlgorithmType.ASSOCIATE
     
     @property
     def algorithm_name(self) -> str:
@@ -37,19 +37,19 @@ class AssociationExtractor(BaseAlgorithmExtractor):
         # 保存查询结果供后续使用
         self._last_query_db_result = query_db_result
         
-        system_prompt = f"""你是关联分析专家。根据用户问题和数据库信息，提取关联分析所需的两列数据。
+        system_prompt = f"""你是关联分析专家。根据用户问题和数据库信息,提取关联分析所需的两列数据。
 
-重要：你必须严格按照以下规则输出JSON，确保列名完全匹配数据库中的实际列名。
+重要：你必须严格按照以下规则输出JSON,确保列名完全匹配数据库中的实际列名。
 
 关联分析要求：
-1. column1: 第一个变量的列名（必需）
-2. column2: 第二个变量的列名（必需）
-3. significance_level: 显著性水平（可选，默认0.05）
+1. column1: 第一个变量的列名(必需)
+2. column2: 第二个变量的列名(必需)
+3. significance_level: 显著性水平(可选,默认0.05)
 
 分析方法会自动选择：
 - 两个分类变量 → 卡方检验
-- 两个数值变量 → 相关性分析（Pearson/Spearman）
-- 一个分类 + 一个数值 → 方差分析（ANOVA）
+- 两个数值变量 → 相关性分析(Pearson/Spearman)
+- 一个分类 + 一个数值 → 方差分析(ANOVA)
 
 数据库可用列信息：
 {schema_text}
@@ -60,7 +60,7 @@ class AssociationExtractor(BaseAlgorithmExtractor):
 3. 不要创造不存在的列名
 4. 优先选择有注释说明的列
 
-输出JSON格式（严格遵守）：
+输出JSON格式(严格遵守)：
 {{
   "parameter_mapping": {{
     "column1": "数据库中第一列的实际列名",
@@ -73,13 +73,13 @@ class AssociationExtractor(BaseAlgorithmExtractor):
         
         user_prompt = f"""用户问题: {question}
 
-请严格按照系统提示的规则分析用户需求，输出符合关联分析要求的JSON参数。
+请严格按照系统提示的规则分析用户需求,输出符合关联分析要求的JSON参数。
 
 关键要求：
 1. 识别用户想要分析关联的两个变量
 2. 从数据库schema中找到对应的实际列名
 3. 确保列名完全匹配数据库中的column_name
-4. 如果用户指定了显著性水平（如α=0.01），则设置significance_level
+4. 如果用户指定了显著性水平(如α=0.01),则设置significance_level
 
 输出JSON格式的参数提取结果。"""
         
@@ -91,7 +91,7 @@ class AssociationExtractor(BaseAlgorithmExtractor):
     def _format_database_schema(self, database_schema: List[DatabaseColumn]) -> str:
         """格式化数据库模式信息"""
         if not database_schema:
-            return "（无可用数据库模式信息）"
+            return "(无可用数据库模式信息)"
         
         # 按表名分组
         tables = {}
@@ -164,13 +164,13 @@ class AssociationExtractor(BaseAlgorithmExtractor):
         # 验证column1
         column1 = parameters.get('column1')
         if not column1:
-            raise ValueError("关联分析需要指定第一列（column1）")
+            raise ValueError("关联分析需要指定第一列(column1)")
         validated['column1'] = str(column1)
         
         # 验证column2
         column2 = parameters.get('column2')
         if not column2:
-            raise ValueError("关联分析需要指定第二列（column2）")
+            raise ValueError("关联分析需要指定第二列(column2)")
         validated['column2'] = str(column2)
         
         # 验证两列不能相同

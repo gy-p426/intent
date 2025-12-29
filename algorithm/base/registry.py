@@ -95,9 +95,9 @@ def register_all_algorithms(nl2sql_client=None):
         algorithm_registry.register_algorithm(TrendAnalysisExtractor(nl2sql_client), TrendAnalysisProcessor())
 
         #关联分析
-        from algorithm.fpgrowth.extractor import FPGrowthExtractor
-        from algorithm.fpgrowth.processor import FPGrowthProcessor
-        algorithm_registry.register_algorithm(FPGrowthExtractor(), FPGrowthProcessor())
+        from algorithm.association.extractor import AssociationExtractor
+        from algorithm.association.processor import AssociationProcessor
+        algorithm_registry.register_algorithm(AssociationExtractor(nl2sql_client), AssociationProcessor())
 
         # 相似度分析算法
         from algorithm.dtw.extractor import DTWExtractor

@@ -6,11 +6,28 @@ Association Analysis Algorithm Configuration
 
 ASSOCIATION_CONFIG = {
     "name": "关联分析",
-    "description": "分析两个变量之间的关联关系，自动选择合适的统计方法（卡方检验/相关性分析/方差分析）",
-    "algorithm_type": "statistical",
+    "description": "分析两个变量之间的关联关系,自动选择合适的统计方法(卡方检验/相关性分析/方差分析)",
+    "algorithm_type": "associate",
     "data_format": "two_columns",
     
-    # 必需参数
+    # 输入格式说明
+    "input_format": {
+        "data": {
+            "column1": {
+                "name": "string - 第一列名称",
+                "values": "array - 第一列的值"
+            },
+            "column2": {
+                "name": "string - 第二列名称",
+                "values": "array - 第二列的值"
+            }
+        },
+        "options": {
+            "significance_level": "float - 显著性水平(默认0.05,范围0.001-0.5)"
+        }
+    },
+    
+    # 必需参数(在data字段中)
     "required_parameters": [
         {
             "name": "column1",
@@ -32,12 +49,12 @@ ASSOCIATION_CONFIG = {
         }
     ],
     
-    # 可选参数
+    # 可选参数(在options字段中)
     "optional_parameters": [
         {
             "name": "significance_level",
             "type": "float",
-            "description": "显著性水平（alpha值）",
+            "description": "显著性水平(alpha值)",
             "default": 0.05,
             "min_value": 0.001,
             "max_value": 0.5
@@ -90,7 +107,7 @@ ASSOCIATION_CONFIG = {
     }
 }
 
-# 🔥 修改：响应参数定义（analyzer.py返回的格式，不包含status）
+# 🔥 修改：响应参数定义（analyzer.py返回的格式,不包含status）
 ASSOCIATION_RESULT = {
     "column1_name": {
         "type": "string",
@@ -158,7 +175,7 @@ ASSOCIATION_RESULT = {
     "interpretation": {
         "type": "string",
         "description": "结果解释（中文）",
-        "example": "education_level 的不同水平在 annual_salary 上存在显著差异（大效应，F=4271.0169，p<0.001，α=0.05）"
+        "example": "education_level 的不同水平在 annual_salary 上存在显著差异（大效应,F=4271.0169,p<0.001,α=0.05）"
     },
     "details": {
         "type": "object",
