@@ -84,6 +84,11 @@ def register_all_algorithms(nl2sql_client=None):
         from algorithm.trend_analysis.processor import TrendAnalysisProcessor
         algorithm_registry.register_algorithm(TrendAnalysisExtractor(nl2sql_client), TrendAnalysisProcessor())
 
+        #关联分析
+        from algorithm.fpgrowth.extractor import FPGrowthExtractor
+        from algorithm.fpgrowth.processor import FPGrowthProcessor
+        algorithm_registry.register_algorithm(FPGrowthExtractor(), FPGrowthProcessor())
+
         # 相似度分析算法
         from algorithm.dtw.extractor import DTWExtractor
         from algorithm.dtw.processor import DTWProcessor
