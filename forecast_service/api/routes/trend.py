@@ -125,8 +125,12 @@ async def trend_decomposition(request: TrendDecompositionRequest) -> TrendDecomp
     - **algorithm**: 分解算法（auto/stl/classical）
     """
     try:
-        logger.info("收到趋势分解请求")
+        logger.info(f"收到趋势分解请求，数据点数量: {len(request.data)}")
         task_id = generate_task_id()
+        
+        # 检查最小数据量
+        if len(request.data) < 4:
+            raise ValueError(f"数据点数量不足，至少需要4个数据点，当前只有{len(request.data)}个")
         
         # 准备数据
         data_points = [point.model_dump() for point in request.data]
@@ -138,11 +142,28 @@ async def trend_decomposition(request: TrendDecompositionRequest) -> TrendDecomp
             period = trend_service.detect_seasonal_period(series)
             logger.info(f"自动检测到季节周期: {period}")
         
-        # 选择算法
+        # 如果周期仍为 None 或数据量不足，使用默认周期
+        if period is None:
+            period = min(len(series) // 2, 7)  # 默认周期，最大为7
+            logger.info(f"无法检测周期，使用默认周期: {period}")
+        
+        # 根据数据量自动调整算法
         algorithm = request.algorithm
+        min_data_for_classical = 2 * period
+        
         if algorithm == "auto":
-            algorithm = trend_service.auto_select_decomposition_algorithm(series, period)
-            logger.info(f"自动选择算法: {algorithm}")
+            # 自动选择：数据量足够用 classical，否则用 stl
+            if len(series) >= min_data_for_classical:
+                algorithm = trend_service.auto_select_decomposition_algorithm(series, period)
+            else:
+                algorithm = "stl"
+                logger.info(f"数据量({len(series)})不足以使用经典分解(需要{min_data_for_classical})，自动切换到STL算法")
+        elif algorithm == "classical" and len(series) < min_data_for_classical:
+            # 用户指定 classical 但数据量不足，自动降级到 stl
+            logger.warning(f"数据量({len(series)})不足以使用经典分解(需要{min_data_for_classical})，自动切换到STL算法")
+            algorithm = "stl"
+        
+        logger.info(f"使用算法: {algorithm}, 周期: {period}, 数据点: {len(series)}")
         
         # 执行分解
         if algorithm == "stl":
@@ -154,16 +175,21 @@ async def trend_decomposition(request: TrendDecompositionRequest) -> TrendDecomp
         else:
             raise ValueError(f"不支持的算法: {algorithm}")
         
+        # 生成通俗易懂的摘要
+        readable_summary = trend_service.generate_readable_summary(results, "decomposition")
+        results["readable_summary"] = readable_summary
+        
         return TrendDecompositionResponse(
             success=True,
             task_id=task_id,
-            message=f"趋势分解完成，使用{algorithm.upper()}算法",
+            message=readable_summary.get("title", f"趋势分解完成，使用{algorithm.upper()}算法"),
             timestamp=datetime.utcnow().isoformat(),
             metadata={
                 "period_detected": period,
                 "algorithm_selected": algorithm,
                 "data_points": len(series),
-                "decomposition_model": request.decomposition_model
+                "decomposition_model": request.decomposition_model,
+                "algorithm_auto_adjusted": algorithm != request.algorithm
             },
             results=results
         )
@@ -236,10 +262,14 @@ async def trend_detection(request: TrendDetectionRequest) -> TrendDetectionRespo
         else:
             raise ValueError(f"不支持的检测方法: {method}")
         
+        # 生成通俗易懂的摘要
+        readable_summary = trend_service.generate_readable_summary(results, "detection")
+        results["readable_summary"] = readable_summary
+        
         return TrendDetectionResponse(
             success=True,
             task_id=task_id,
-            message="趋势检测完成",
+            message=readable_summary.get("title", "趋势检测完成"),
             timestamp=datetime.utcnow().isoformat(),
             metadata={
                 "method_used": results.get("method", method),

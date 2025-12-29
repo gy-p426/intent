@@ -116,6 +116,12 @@ class MultivariatePredictor:
         model, metrics = self._train_model(X, y, algorithm)
         predictions = self._generate_forecast(model, df, target_column, feature_columns, horizon)
         
+        # 生成通俗易懂的摘要
+        readable_summary = self.generate_readable_summary(
+            predictions, metrics, algorithm, analysis, len(feature_columns)
+        )
+        predictions['readable_summary'] = readable_summary
+        
         model_id = f"mv_{uuid.uuid4().hex[:8]}"
         self.models[model_id] = {
             'model': model, 'algorithm': algorithm, 'target_column': target_column,
@@ -203,3 +209,126 @@ class MultivariatePredictor:
             recent_values = recent_values[-3:]
         
         return {'timestamps': timestamps, 'forecast': forecasts, 'horizon': horizon}
+
+    def generate_readable_summary(self, predictions: Dict[str, Any], metrics: Dict[str, float], 
+                                   algorithm: str, data_analysis: Dict[str, Any],
+                                   feature_count: int) -> Dict[str, Any]:
+        """
+        生成通俗易懂的多变量预测结果摘要
+        
+        Args:
+            predictions: 预测结果
+            metrics: 模型评估指标
+            algorithm: 使用的算法
+            data_analysis: 数据分析结果
+            feature_count: 特征数量
+            
+        Returns:
+            包含通俗解释的摘要字典
+        """
+        summary = {
+            "title": "🎯 多变量预测分析结果",
+            "key_findings": [],
+            "explanation": "",
+            "recommendations": []
+        }
+        
+        try:
+            # 算法说明
+            algorithm_desc = {
+                'lightgbm': 'LightGBM（高效梯度提升算法）',
+                'xgboost': 'XGBoost（极端梯度提升算法）',
+                'random_forest': '随机森林（集成学习算法）',
+                'linear_regression': '线性回归（基础统计模型）'
+            }
+            algo_name_cn = algorithm_desc.get(algorithm, algorithm)
+            
+            summary["key_findings"].append(f"🤖 使用 **{algo_name_cn}** 进行预测")
+            summary["key_findings"].append(f"📊 综合了 **{feature_count}** 个特征变量进行分析")
+            
+            # 模型准确度解读
+            if metrics:
+                r2 = metrics.get('r2', 0)
+                rmse = metrics.get('rmse', 0)
+                
+                if r2 >= 0.9:
+                    accuracy_desc = "非常高"
+                    accuracy_emoji = "⭐⭐⭐"
+                elif r2 >= 0.7:
+                    accuracy_desc = "较高"
+                    accuracy_emoji = "⭐⭐"
+                elif r2 >= 0.5:
+                    accuracy_desc = "中等"
+                    accuracy_emoji = "⭐"
+                else:
+                    accuracy_desc = "一般"
+                    accuracy_emoji = ""
+                
+                summary["key_findings"].append(
+                    f"📈 模型准确度：**{accuracy_desc}** {accuracy_emoji}（R² = {r2:.1%}）"
+                )
+                summary["key_findings"].append(
+                    f"📐 平均预测误差：约 {rmse:.2f}（RMSE）"
+                )
+            
+            # 预测趋势分析
+            forecast_values = predictions.get('forecast', [])
+            horizon = predictions.get('horizon', 0)
+            
+            if len(forecast_values) >= 2:
+                first_val = forecast_values[0]
+                last_val = forecast_values[-1]
+                change = last_val - first_val
+                change_pct = (change / first_val * 100) if first_val != 0 else 0
+                
+                if change > 0:
+                    trend_emoji = "📈"
+                    trend_desc = "上升"
+                elif change < 0:
+                    trend_emoji = "📉"
+                    trend_desc = "下降"
+                else:
+                    trend_emoji = "➡️"
+                    trend_desc = "平稳"
+                
+                summary["key_findings"].append(
+                    f"{trend_emoji} 预测期内（{horizon}个时间点）整体呈 **{trend_desc}趋势**"
+                )
+            
+            # 生成通俗解释
+            summary["explanation"] = (
+                f"我们使用 **{algo_name_cn}** 对您的数据进行了多变量预测分析。\n\n"
+                f"与单变量预测不同，多变量预测综合考虑了 {feature_count} 个相关因素，"
+                f"能够更全面地捕捉数据变化的规律。"
+            )
+            
+            if metrics and metrics.get('r2'):
+                r2 = metrics['r2']
+                summary["explanation"] += (
+                    f"\n\n模型的 R² 值为 {r2:.1%}，这意味着模型能够解释约 {r2:.0%} 的数据变化。"
+                )
+                if r2 >= 0.7:
+                    summary["explanation"] += "这是一个相当不错的结果，预测具有较高的参考价值。"
+                elif r2 >= 0.5:
+                    summary["explanation"] += "预测结果可作为参考，但建议结合其他信息综合判断。"
+                else:
+                    summary["explanation"] += "预测结果仅供参考，建议谨慎使用。"
+            
+            # 生成建议
+            if metrics:
+                r2 = metrics.get('r2', 0)
+                if r2 >= 0.7:
+                    summary["recommendations"].append("💡 模型准确度较高，预测结果可作为决策参考")
+                else:
+                    summary["recommendations"].append("💡 建议收集更多数据或增加相关特征以提高预测准确度")
+            
+            summary["recommendations"].append("💡 预测值会随时间推移而累积误差，建议定期更新模型")
+            
+            if feature_count < 3:
+                summary["recommendations"].append("💡 特征较少，考虑增加更多相关变量可能提升预测效果")
+            
+        except Exception as e:
+            logger.warning(f"生成可读摘要失败: {e}")
+            summary["explanation"] = "预测已完成，请查看详细数据。"
+        
+        return summary

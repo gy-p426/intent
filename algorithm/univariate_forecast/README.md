@@ -88,7 +88,35 @@ FORECAST_SERVICE_URL=http://192.168.5.106:8100
 
 ## 输出结果
 
-详细的返回参数说明请参考 [算法返回参数规范文档](../趋势分析相关算法返回.md)。
+详细的返回参数说明请参考 [趋势分析与预测接口文档](../趋势分析与预测接口文档.md)。
+
+### 🆕 大模型智能分析
+
+系统集成了大模型（LLM）自动分析功能，会将算法原始结果转换为用户友好的自然语言分析报告。
+
+**响应结构**：
+```json
+{
+  "readable_result": {
+    "llm_analysis": "预测分析完成，基于168条历史数据，使用Prophet模型预测了未来24小时的数据。预测结果显示整体呈上升趋势，建议关注...",
+    "technical_details": {
+      "summary": "算法执行完成",
+      "status": "success",
+      "metrics": {
+        "model_used": "prophet",
+        "forecast_periods": 24
+      }
+    },
+    "analysis_source": "llm_enhanced"
+  }
+}
+```
+
+**analysis_source 取值**：
+- `llm_enhanced`: 大模型增强分析
+- `fallback`: 降级处理（模板生成）
+
+### 预测结果输出
 
 ```json
 {
@@ -131,6 +159,11 @@ algorithm/univariate_forecast/
 ├── processor.py         # 数据处理器（UnivariateForecastProcessor）
 └── README.md            # 本文档
 ```
+
+## 相关文档
+
+- [趋势分析与预测接口文档](../趋势分析与预测接口文档.md) - 完整的返回参数说明和前端集成指南
+- [算法接入指南](../../算法接入改.md) - 新算法接入说明
 
 ## 核心组件
 

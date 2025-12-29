@@ -69,20 +69,21 @@ class MultivariateForecastExtractor(BaseAlgorithmExtractor):
 2. target_column的值必须是数据库中实际存在的数值型列名
 3. feature_columns的值必须是数据库中实际存在的数值型列名列表
 4. 不要创造不存在的列名
-5. normalized_query中一定写明返回的数据列
+5. 优先选择有注释说明的列
+6. normalized_query中一定写明返回的数据列注释（即timestamp_column+target_column+feature_columns），并且标名返回几列数据，否则无法正确解析，如"获取日期、销售额、温度、湿度，共4列数据"！！！
 
 输出JSON格式（严格遵守）：
 {{
   "parameter_mapping": {{
-    "timestamp_column": "时间列名",
-    "target_column": "目标列名",
-    "feature_columns": ["特征列1", "特征列2", ...],
-    "forecast_horizon": 预测步数,
-    "algorithm": "lightgbm/xgboost/random_forest/linear_regression",
-    "model_name": "模型名称或null"
+    "timestamp_column": "日期",
+    "target_column": "销售额",
+    "feature_columns": ["温度", "湿度"],
+    "forecast_horizon": 14,
+    "algorithm": "lightgbm",
+    "model_name": null
   }},
-  "required_columns": ["时间列名", "目标列名", "特征列1", "特征列2", ...],
-  "normalized_query": "获取XXX的历史数据用于多变量预测"
+  "required_columns": ["日期", "销售额", "温度", "湿度"],
+  "normalized_query": "获取历史销售数据的日期、销售额、温度、湿度，共4列数据"
 }}"""
         
         user_prompt = f"""用户问题: {question}

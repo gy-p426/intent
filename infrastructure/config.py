@@ -381,6 +381,30 @@ class Settings(BaseSettings):
         description="MySQL密码"
     )
     
+    # 🆕 大模型分析配置
+    enable_llm_result_analysis: bool = Field(
+        default=True,
+        description="是否启用大模型结果分析"
+    )
+    llm_analysis_model: str = Field(
+        default="deepseek-v3-2-251201",
+        description="大模型分析使用的模型名称"
+    )
+    llm_analysis_timeout: int = Field(
+        default=30,
+        description="大模型分析超时时间（秒）",
+        ge=1
+    )
+    llm_analysis_max_retries: int = Field(
+        default=2,
+        description="大模型分析最大重试次数",
+        ge=0
+    )
+    llm_analysis_fallback_enabled: bool = Field(
+        default=True,
+        description="大模型分析失败时是否启用降级处理"
+    )
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

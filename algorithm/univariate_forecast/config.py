@@ -88,6 +88,12 @@ UNIVARIATE_FORECAST_RESPONSE = {
             "training_date_range": {
                 "start": "string - 训练数据起始时间",
                 "end": "string - 训练数据结束时间"
+            },
+            "readable_summary": {
+                "title": "string - 分析结果标题（如：🔮 单变量预测分析结果）",
+                "key_findings": "array[string] - 关键发现列表，用通俗语言描述预测结果",
+                "explanation": "string - 详细的通俗解释，说明预测结果的含义",
+                "recommendations": "array[string] - 基于分析结果的建议"
             }
         },
         "model_used": "string - 使用的模型: 'prophet' 或 'arima'",
@@ -111,6 +117,31 @@ UNIVARIATE_FORECAST_RESPONSE = {
         "model_used": "string - 尝试使用的模型 (可能为null)",
         "error_details": {
             "error": "string - 详细错误信息"
+        }
+    },
+    
+    # readable_summary 字段说明
+    "readable_summary_description": {
+        "purpose": "为非专业用户提供通俗易懂的预测结果解读",
+        "fields": {
+            "title": "带有emoji的分析结果标题，直观展示分析类型",
+            "key_findings": "关键发现列表，每条发现都用通俗语言描述，避免专业术语",
+            "explanation": "详细解释预测结果的含义，帮助用户理解数据背后的故事",
+            "recommendations": "基于分析结果给出的实用建议，帮助用户采取行动"
+        },
+        "example": {
+            "title": "🔮 单变量预测分析结果",
+            "key_findings": [
+                "🤖 系统自动选择了 **Prophet（适合有季节性的数据）** 模型进行预测",
+                "📅 预测了未来 **24** 个时间点的数据",
+                "📈 预测期内整体呈 **上升趋势**，变化幅度约 5.2%",
+                "🔄 数据存在周期性规律，预测已考虑这一特征"
+            ],
+            "explanation": "我们使用 **Prophet** 对您的数据进行了分析和预测...",
+            "recommendations": [
+                "💡 预测值仅供参考，建议结合实际业务情况进行决策",
+                "💡 数据有周期性，建议关注周期性波动对业务的影响"
+            ]
         }
     }
 }
