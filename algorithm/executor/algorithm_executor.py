@@ -378,6 +378,63 @@ class AlgorithmExecutor(IAlgorithmExecutor):
     #         )
     
     # =========================================================================
+    # Association Analysis 执行方法
+    # =========================================================================
+    
+    async def execute_association(
+        self,
+        request: AlgorithmExecutionRequest
+    ) -> AlgorithmExecutionResponse:
+        """
+        执行关联分析算法
+        
+        Args:
+            request: 算法执行请求
+            
+        Returns:
+            AlgorithmExecutionResponse: 执行响应
+        """
+        logger.info("开始执行关联分析算法")
+        logger.info(f"算法配置: {request.config}")
+        
+        try:
+            # 调用关联分析API
+            result_data = await self.algorithm_client.call_association_api(
+                config=request.config
+            )
+            
+            logger.info("关联分析算法执行成功")
+            
+            # 🎉 新版本：无需编写复杂的格式化逻辑！
+            # 只需要返回原始结果，大模型会自动生成用户友好的分析
+            # 检查响应中是否包含必需的字段来判断成功
+            if 'column1_name' in result_data:
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="success",
+                    message="关联分析执行成功",
+                    readable_result=None  # 🆕 设置为None，系统会自动调用大模型分析
+                )
+            else:
+                error_msg = result_data.get('error', result_data.get('message', '未知错误'))
+                logger.error(f"关联分析返回错误状态: {result_data}")
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="error",
+                    message=f"关联分析执行失败: {error_msg}",
+                    readable_result=None  # 🆕 错误情况下也会自动生成分析
+                )
+        
+        except Exception as e:
+            logger.error(f"关联分析执行失败: {str(e)}")
+            return AlgorithmExecutionResponse(
+                result={},
+                status="error",
+                message=f"关联分析执行失败: {str(e)}",
+                readable_result=None  # 🆕 异常情况下也会自动处理
+            )
+    
+    # =========================================================================
     # Forecast Service 执行方法
     # =========================================================================
     
@@ -973,6 +1030,8 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             #     return await self.execute_iforest(algorithm_request)
             elif "异常" in algorithm_config.name or parameters.algorithm_type.value == "anomaly":
                 return await self.execute_anomaly_detection(algorithm_request)
+            elif "关联" in algorithm_name or algorithm_type == "associate":
+                return await self.execute_association(algorithm_request)
             else:
                 # 对于其他算法类型，可以扩展支持
                 logger.warning(f"暂不支持的算法类型: {parameters.algorithm_type}")

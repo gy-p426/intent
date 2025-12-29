@@ -504,6 +504,31 @@ class AlgorithmAPIClient:
         }
         return await self.call_algorithm_api("trend", endpoint, "POST", payload)
     
+    async def call_association_api(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        调用关联分析API
+        
+        Args:
+            config: 关联分析配置，包含data和options
+            
+        Returns:
+            Dict[str, Any]: 关联分析结果
+        """
+        endpoint = "/api/v1/association/analyze"
+        
+        # config已经包含完整的请求格式：
+        # {
+        #   "data": {
+        #     "column1": {"name": "...", "values": [...]},
+        #     "column2": {"name": "...", "values": [...]}
+        #   },
+        #   "options": {
+        #     "significance_level": 0.05
+        #   }
+        # }
+        payload = config
+        return await self.call_algorithm_api("association", endpoint, "POST", payload)
+    
     async def call_univariate_forecast_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
         """
         调用单变量预测API
