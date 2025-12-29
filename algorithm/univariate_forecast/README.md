@@ -4,6 +4,23 @@
 
 单变量时间序列预测算法基于历史时间序列数据预测未来值，支持自动模型选择，可根据数据特征自动选择最优的预测模型。
 
+## 架构说明
+
+本模块通过 `AlgorithmExecutor` 调用远程 `forecast_service` 微服务执行预测。
+
+```
+主项目                                  远程服务
+┌───────────────────────────┐          ┌─────────────────────┐
+│ UnivariateForecastProcessor │  HTTP   │   forecast_service   │
+│   └─ AlgorithmExecutor      ├────────►│   (192.168.x.x:8100) │
+└───────────────────────────┘          └─────────────────────┘
+```
+
+**配置远程服务地址**：在 `.env` 文件中设置：
+```
+FORECAST_SERVICE_URL=http://192.168.5.106:8100
+```
+
 ## 支持的算法
 
 | 算法 | 说明 | 适用场景 |
@@ -69,24 +86,9 @@
 }
 ```
 
-### 使用特定模型
-```
-用户问题: "使用Prophet模型预测未来30天的温度"
-预期输出:
-{
-  "parameter_mapping": {
-    "timestamp_column": "日期",
-    "value_column": "温度",
-    "forecast_horizon": 30,
-    "model_type": "prophet",
-    "include_confidence": true
-  }
-}
-```
-
 ## 输出结果
 
-详细的返回参数说明请参考 [算法返回参数规范文档](../API_RESPONSE_SPEC.md)。
+详细的返回参数说明请参考 [算法返回参数规范文档](../趋势分析相关算法返回.md)。
 
 ```json
 {
@@ -95,11 +97,9 @@
     "forecast": [110.5, 112.3, 115.0, ...],
     "timestamps": ["2024-01-01 00:00", "2024-01-01 01:00", ...],
     "confidence_lower": [105.2, 107.1, 109.5, ...],
-    "confidence_upper": [115.8, 117.5, 120.5, ...],
-    "training_data_points": 168,
-    "forecast_horizon": 24
+    "confidence_upper": [115.8, 117.5, 120.5, ...]
   },
-  "model_used": "arima",
+  "model_used": "prophet",
   "data_analysis": {
     "data_points": 168,
     "mean": 108.5,
@@ -126,7 +126,7 @@
 ```
 algorithm/univariate_forecast/
 ├── __init__.py          # 模块初始化，导出主要类
-├── config.py            # 算法配置定义
+├── config.py            # 算法配置定义（UNIVARIATE_FORECAST_CONFIG, UNIVARIATE_FORECAST_RESPONSE）
 ├── extractor.py         # 参数提取器（UnivariateForecastExtractor）
 ├── processor.py         # 数据处理器（UnivariateForecastProcessor）
 └── README.md            # 本文档
@@ -142,14 +142,15 @@ algorithm/univariate_forecast/
 1. 将SQL查询结果转换为预测所需格式
 2. 数据清洗和预处理
 3. 验证算法输入
-4. 调用核心预测模块执行预测
+4. 通过 `AlgorithmExecutor` 调用远程 `forecast_service` 执行预测
 
-## 依赖模块
+## 远程服务依赖
 
-本算法整合模块依赖 `algorithm/forecast_core/auto_univariate_forecast` 中的核心实现：
-- `AutoUnivariatePredictor`: 自动单变量预测器
-- `ARIMAModel`: ARIMA模型实现
-- `ProphetModel`: Prophet模型实现
+本模块通过 HTTP 调用远程 `forecast_service` 微服务：
+
+- **服务地址配置**：`infrastructure/config.py` 中的 `forecast_service_url`
+- **API 端点**：`POST /api/v1/forecast/univariate`
+- **执行器**：`algorithm/executor/algorithm_executor.py` 中的 `execute_univariate_forecast()`
 
 ## 注意事项
 
@@ -158,16 +159,14 @@ algorithm/univariate_forecast/
 3. 预测步数过大可能导致预测精度下降
 4. 建议预测步数不超过历史数据长度的1/3
 5. 数据中的缺失值会自动进行线性插值处理
+6. **确保远程 `forecast_service` 服务已启动**
 
 ## 测试
 
 运行测试用例：
 ```bash
-# 运行单变量预测专项测试
+# 运行单变量预测结构测试
 python -m pytest tests/algorithm/test_univariate_forecast.py -v
-
-# 运行所有预测算法集成测试
-python -m pytest tests/test_forecast_integration.py -k "univariate" -v
 ```
 
 ## 开发指南
@@ -178,7 +177,5 @@ python -m pytest tests/test_forecast_integration.py -k "univariate" -v
 ### 修改数据处理逻辑
 在 `processor.py` 中修改数据转换和验证逻辑。
 
-### 添加新的预测模型
-1. 在 `config.py` 中添加新模型的配置
-2. 在 `processor.py` 的 `execute_univariate_forecast` 方法中添加新模型的调用逻辑
-3. 更新本文档
+### 修改远程调用逻辑
+在 `algorithm/executor/algorithm_executor.py` 的 `execute_univariate_forecast()` 方法中修改。

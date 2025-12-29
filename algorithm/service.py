@@ -33,6 +33,23 @@ logger = logging.getLogger(__name__)
 structured_logger = get_structured_logger(__name__)
 
 
+# 算法类型中文映射
+ALGORITHM_TYPE_CHINESE_MAP = {
+    AlgorithmType.CLUSTER: "聚类",
+    AlgorithmType.CLASSIFY: "分类",
+    AlgorithmType.PREDICT: "预测",
+    AlgorithmType.ANOMALY: "异常检测",
+    AlgorithmType.ASSOCIATE: "关联分析",
+    AlgorithmType.COMPARE: "对比分析",
+    AlgorithmType.SIMILARITY: "相似度分析",
+    AlgorithmType.TREND: "趋势分析",
+    AlgorithmType.PROFILE: "画像分析",
+    AlgorithmType.CAUSALITY: "因果分析",
+    AlgorithmType.ALERT: "预警分析",
+    AlgorithmType.RECOMMEND: "推荐分析"
+}
+
+
 class AlgorithmIntegrationService(IAlgorithmIntegrationService):
     """算法集成服务主类"""
     
@@ -77,6 +94,11 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         self.schema_retriever = schema_retriever or DatabaseSchemaRetriever()
         self.error_handler = error_handler or ErrorHandler()
         self.retry_handler = retry_handler or RetryHandler()
+        
+        # 如果没有提供算法执行器，创建默认实例
+        if self.algorithm_executor is None:
+            from algorithm.executor.algorithm_executor import AlgorithmExecutor
+            self.algorithm_executor = AlgorithmExecutor()
         
         # 配置重试策略
         self.retry_configs = {
@@ -200,12 +222,14 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 logger.info(f"算法类型识别完成: {algorithm_type}", extra={'trace_id': trace_id})
                 
                 # 流式返回算法类型识别结果
+                algorithm_type_chinese = ALGORITHM_TYPE_CHINESE_MAP.get(algorithm_type, algorithm_type.value)
                 yield AlgorithmResponse(
                     step=StreamingStep.ALGORITHM_IDENTIFICATION,
                     status="completed",
                     data={
                         "algorithm_type": algorithm_type.value,
-                        "message": f"识别到算法类型: {algorithm_type.value}"
+                        "algorithm_type_chinese": algorithm_type_chinese,
+                        "message": f"识别到算法类型: {algorithm_type_chinese}"
                     },
                     timestamp=datetime.utcnow()
                 )
@@ -314,7 +338,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                         status="completed",
                         data={
                             "data_rows_count": len(nl2sql_response.execution_result),
-                            "sample_data": nl2sql_response.execution_result[:3] if nl2sql_response.execution_result else [],
+                            "sample_data": nl2sql_response.execution_result if nl2sql_response.execution_result else [],
                             "message": f"数据检索完成，获取到 {len(nl2sql_response.execution_result)} 行数据"
                         },
                         timestamp=datetime.utcnow()
@@ -323,10 +347,11 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                     # 步骤4: 算法执行
                     if self.algorithm_executor and self.data_processor:
                         logger.info("开始算法执行")
+                        algorithm_type_chinese = ALGORITHM_TYPE_CHINESE_MAP.get(algorithm_type, algorithm_type.value)
                         yield AlgorithmResponse(
                             step=StreamingStep.ALGORITHM_EXECUTION,
                             status="processing",
-                            data={"message": f"正在执行{algorithm_type.value}算法..."},
+                            data={"message": f"正在执行{algorithm_type_chinese}算法..."},
                             timestamp=datetime.utcnow()
                         )
                         
@@ -419,28 +444,66 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                     )
                             
                             else:
-                                # 同步任务结果
+                                # 同步任务结果 - 记录详细的算法结果日志
+                                algorithm_result = execution_response.result
+                                
+                                # 详细记录算法结果
+                                logger.info(f"算法执行完成: {algorithm_type.value}")
+                                logger.info(f"算法结果状态: {algorithm_result.get('status', 'unknown')}")
+                                
+                                # 根据算法类型记录特定信息
+                                if algorithm_type.value == "cluster" and algorithm_result.get('status') == 'success':
+                                    k_used = algorithm_result.get('k_used', 'unknown')
+                                    results = algorithm_result.get('results', [])
+                                    logger.info(f"聚类分析完成 - 使用K值: {k_used}, 结果数量: {len(results)}")
+                                    
+                                    # 计算聚类分布
+                                    if results:
+                                        cluster_distribution = {}
+                                        for item in results:
+                                            cluster_id = item.get('cluster_id', 'unknown')
+                                            cluster_distribution[cluster_id] = cluster_distribution.get(cluster_id, 0) + 1
+                                        logger.info(f"聚类分布: {cluster_distribution}")
+                                
+                                # 构建增强的算法执行响应
+                                algorithm_type_chinese = ALGORITHM_TYPE_CHINESE_MAP.get(algorithm_type, algorithm_type.value)
+                                algorithm_execution_data = {
+                                    "algorithm_result": algorithm_result,
+                                    "message": f"{algorithm_type_chinese}算法执行完成",
+                                    "execution_summary": self._generate_algorithm_summary(algorithm_type, algorithm_result)
+                                }
+                                
                                 yield AlgorithmResponse(
                                     step=StreamingStep.ALGORITHM_EXECUTION,
                                     status="completed",
-                                    data={
-                                        "algorithm_result": execution_response.result,
-                                        "message": "算法执行完成"
-                                    },
+                                    data=algorithm_execution_data,
                                     timestamp=datetime.utcnow()
                                 )
                                 
-                                # 返回最终完成状态
+                                # 构建增强的最终完成响应
+                                algorithm_type_chinese = ALGORITHM_TYPE_CHINESE_MAP.get(algorithm_type, algorithm_type.value)
+                                final_data = {
+                                    "algorithm_type": algorithm_type.value,
+                                    "algorithm_type_chinese": algorithm_type_chinese,
+                                    "algorithm_result": algorithm_result,
+                                    "sql_statement": nl2sql_response.sql_statement,
+                                    "normalized_query": parameters.normalized_query,
+                                    "execution_summary": self._generate_algorithm_summary(algorithm_type, algorithm_result),
+                                    "data_summary": {
+                                        "input_rows": len(nl2sql_response.execution_result),
+                                        "sql_execution_time": nl2sql_response.execution_time_ms
+                                    },
+                                    "readable_result": self._format_readable_result(algorithm_type, algorithm_result, nl2sql_response.execution_result),
+                                    "message": f"{algorithm_type_chinese}算法执行完成"
+                                }
+                                
+                                logger.info(f"完整算法流程执行完成: {algorithm_type.value}")
+                                logger.info(f"最终结果摘要: {final_data['execution_summary']}")
+                                
                                 yield AlgorithmResponse(
                                     step=StreamingStep.COMPLETED,
                                     status="completed",
-                                    data={
-                                        "algorithm_type": algorithm_type.value,
-                                        "algorithm_result": execution_response.result,
-                                        "sql_statement": nl2sql_response.sql_statement,
-                                        "normalized_query": parameters.normalized_query,
-                                        "message": "所有步骤完成"
-                                    },
+                                    data=final_data,
                                     timestamp=datetime.utcnow()
                                 )
                         
@@ -564,8 +627,9 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         if not window_id:
             raise ParameterValidationError("窗口ID不能为空", field_name="window_id")
         
-        if not session_id:
-            raise ParameterValidationError("会话ID不能为空", field_name="session_id")
+        # 会话ID可以为空，不进行验证
+        # if not session_id:
+        #     raise ParameterValidationError("会话ID不能为空", field_name="session_id")
     
     def _validate_components(self):
         """验证必需的组件是否已初始化"""
@@ -706,6 +770,57 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                     retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
                     context={'operation': 'classification_execution', 'algorithm_type': algorithm_type.value}
                 )
+            elif algorithm_type == AlgorithmType.ANOMALY:
+                return await self.retry_handler.retry_async(
+                    self.algorithm_executor.execute_anomaly_detection,
+                    algorithm_request,
+                    config=self.retry_configs['algorithm_api'],
+                    retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
+                    context={'operation': 'anomaly_detection_execution', 'algorithm_type': algorithm_type.value}
+                )
+            # elif algorithm_type == AlgorithmType.DBSCAN:
+            #     return await self.retry_handler.retry_async(
+            #         self.algorithm_executor.execute_dbscan,
+            #         algorithm_request,
+            #         config=self.retry_configs['algorithm_api'],
+            #         retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
+            #         context={'operation': 'dbscan_execution', 'algorithm_type': algorithm_type.value}
+            #     )
+            # elif algorithm_type == AlgorithmType.IFOREST:
+            #     return await self.retry_handler.retry_async(
+            #         self.algorithm_executor.execute_iforest,
+            #         algorithm_request,
+            #         config=self.retry_configs['algorithm_api'],
+            #         retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
+            #         context={'operation': 'iforest_execution', 'algorithm_type': algorithm_type.value}
+            #     )
+            elif algorithm_type == AlgorithmType.TREND:
+                return await self.retry_handler.retry_async(
+                    self.algorithm_executor.execute_trend_analysis,
+                    algorithm_request,
+                    config=self.retry_configs['algorithm_api'],
+                    retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
+                    context={'operation': 'trend_analysis_execution', 'algorithm_type': algorithm_type.value}
+                )
+            elif algorithm_type == AlgorithmType.PREDICT:
+                # 预测类型需要根据子类型判断使用单变量还是多变量预测
+                sub_algorithm = algorithm_request.config.get('sub_algorithm', 'univariate')
+                if 'multivariate' in sub_algorithm or '多变量' in sub_algorithm:
+                    return await self.retry_handler.retry_async(
+                        self.algorithm_executor.execute_multivariate_forecast,
+                        algorithm_request,
+                        config=self.retry_configs['algorithm_api'],
+                        retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
+                        context={'operation': 'multivariate_forecast_execution', 'algorithm_type': algorithm_type.value}
+                    )
+                else:
+                    return await self.retry_handler.retry_async(
+                        self.algorithm_executor.execute_univariate_forecast,
+                        algorithm_request,
+                        config=self.retry_configs['algorithm_api'],
+                        retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
+                        context={'operation': 'univariate_forecast_execution', 'algorithm_type': algorithm_type.value}
+                    )
             else:
                 raise AlgorithmExecutionError(
                     f"暂不支持的算法类型: {algorithm_type}",
@@ -764,6 +879,84 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 details={'task_id': task_id},
                 original_error=e
             )
+    
+    def _generate_algorithm_summary(self, algorithm_type: AlgorithmType, algorithm_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        生成算法执行摘要
+        
+        Args:
+            algorithm_type: 算法类型
+            algorithm_result: 算法执行结果
+            
+        Returns:
+            Dict[str, Any]: 算法摘要信息
+        """
+        summary = {
+            "algorithm_type": algorithm_type.value,
+            "status": algorithm_result.get("status", "unknown"),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        try:
+            if algorithm_type == AlgorithmType.CLUSTER:
+                # 聚类算法摘要
+                if algorithm_result.get("status") == "success":
+                    k_used = algorithm_result.get("k_used", 0)
+                    results = algorithm_result.get("results", [])
+                    
+                    # 计算聚类分布
+                    cluster_distribution = {}
+                    for item in results:
+                        cluster_id = item.get("cluster_id", "unknown")
+                        cluster_distribution[cluster_id] = cluster_distribution.get(cluster_id, 0) + 1
+                    
+                    summary.update({
+                        "k_value_used": k_used,
+                        "total_data_points": len(results),
+                        "cluster_distribution": cluster_distribution,
+                        "cluster_count": len(cluster_distribution),
+                        "largest_cluster_size": max(cluster_distribution.values()) if cluster_distribution else 0,
+                        "smallest_cluster_size": min(cluster_distribution.values()) if cluster_distribution else 0
+                    })
+                    
+                    # 添加聚类质量指标（如果有的话）
+                    if "metrics" in algorithm_result:
+                        summary["quality_metrics"] = algorithm_result["metrics"]
+                
+            elif algorithm_type == AlgorithmType.CLASSIFY:
+                # 分类算法摘要
+                if algorithm_result.get("status") == "success":
+                    results = algorithm_result.get("results", [])
+                    
+                    # 统计预测结果分布
+                    prediction_distribution = {}
+                    confidence_scores = []
+                    
+                    for item in results:
+                        predicted_label = item.get("predicted_label", "unknown")
+                        prediction_distribution[predicted_label] = prediction_distribution.get(predicted_label, 0) + 1
+                        
+                        if "probability" in item:
+                            confidence_scores.append(item["probability"])
+                    
+                    summary.update({
+                        "total_predictions": len(results),
+                        "prediction_distribution": prediction_distribution,
+                        "unique_labels": len(prediction_distribution),
+                        "average_confidence": sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0,
+                        "min_confidence": min(confidence_scores) if confidence_scores else 0,
+                        "max_confidence": max(confidence_scores) if confidence_scores else 0
+                    })
+            
+            # 添加通用错误信息
+            if algorithm_result.get("status") != "success":
+                summary["error_message"] = algorithm_result.get("error", "未知错误")
+                
+        except Exception as e:
+            logger.warning(f"生成算法摘要时发生错误: {str(e)}")
+            summary["summary_generation_error"] = str(e)
+        
+        return summary
     
     def get_service_health(self) -> Dict[str, Any]:
         """获取服务健康状态"""
@@ -833,3 +1026,709 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             await self.schema_retriever.close()
         
         logger.info("资源清理完成")
+    
+    def _format_readable_result(self, algorithm_type: AlgorithmType, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        格式化算法结果为可读格式
+        
+        Args:
+            algorithm_type: 算法类型
+            algorithm_result: 算法执行结果
+            original_data: 原始数据
+            
+        Returns:
+            Dict[str, Any]: 格式化后的可读结果
+        """
+        try:
+            if algorithm_type == AlgorithmType.CLUSTER and algorithm_result.get("status") == "success":
+                return self._format_clustering_result(algorithm_result, original_data)
+            elif algorithm_type == AlgorithmType.CLASSIFY and algorithm_result.get("status") == "success":
+                return self._format_classification_result(algorithm_result, original_data)
+            elif algorithm_type == AlgorithmType.TREND:
+                return self._format_trend_result(algorithm_result, original_data)
+            elif algorithm_type == AlgorithmType.PREDICT:
+                return self._format_forecast_result(algorithm_result, original_data)
+            elif algorithm_type == AlgorithmType.ANOMALY:
+                return self._format_anomaly_result(algorithm_result, original_data)
+            # elif algorithm_type == AlgorithmType.DBSCAN:
+            #     return self._format_dbscan_result(algorithm_result, original_data)
+            # elif algorithm_type == AlgorithmType.IFOREST:
+            #     return self._format_iforest_result(algorithm_result, original_data)
+            else:
+                return {
+                    "summary": f"算法执行状态: {algorithm_result.get('status', '未知')}",
+                    "details": algorithm_result
+                }
+        except Exception as e:
+            logger.warning(f"格式化算法结果时发生错误: {str(e)}")
+            return {
+                "summary": "结果格式化失败",
+                "raw_result": algorithm_result
+            }
+    
+    def _format_clustering_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        格式化聚类算法结果
+        
+        Args:
+            algorithm_result: 聚类算法结果
+            original_data: 原始数据
+            
+        Returns:
+            Dict[str, Any]: 格式化后的聚类结果
+        """
+        k_used = algorithm_result.get("k_used", 0)
+        results = algorithm_result.get("results", [])
+        
+        # 按聚类ID分组
+        cluster_groups = {}
+        for item in results:
+            cluster_id = item.get("cluster_id")
+            uid = item.get("uid")
+            
+            if cluster_id is not None and uid is not None:
+                if cluster_id not in cluster_groups:
+                    cluster_groups[cluster_id] = []
+                cluster_groups[cluster_id].append(uid)
+        
+        # 构建简洁的聚类结果描述
+        cluster_descriptions = []
+        cluster_summary = {}
+        
+        for cluster_id in sorted(cluster_groups.keys()):
+            member_ids = cluster_groups[cluster_id]
+            cluster_name = f"第{cluster_id + 1}类" if cluster_id >= 0 else f"聚类{cluster_id}"
+            
+            # 创建描述
+            if len(member_ids) <= 10:
+                # 如果成员不多，显示所有ID
+                ids_str = "、".join(member_ids)
+                description = f"{cluster_name}包含{len(member_ids)}个成员：{ids_str}"
+            else:
+                # 如果成员很多，只显示前几个
+                ids_str = "、".join(member_ids[:8])
+                description = f"{cluster_name}包含{len(member_ids)}个成员：{ids_str}等"
+            
+            cluster_descriptions.append(description)
+            cluster_summary[cluster_name] = {
+                "count": len(member_ids),
+                "members": member_ids
+            }
+        
+        # 生成总体描述
+        total_description = f"聚类分析完成，将{len(results)}个数据点分为{k_used}个聚类。"
+        full_description = total_description + " " + "；".join(cluster_descriptions) + "。"
+        
+        return {
+            "summary": full_description,
+            "k_value": k_used,
+            "total_data_points": len(results),
+            "cluster_details": cluster_summary,
+            "simple_view": {
+                f"第{i+1}类": cluster_groups.get(i, []) 
+                for i in sorted(cluster_groups.keys())
+            }
+        }
+    
+    def _format_classification_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        格式化分类算法结果
+        
+        Args:
+            algorithm_result: 分类算法结果
+            original_data: 原始数据
+            
+        Returns:
+            Dict[str, Any]: 格式化后的分类结果
+        """
+        results = algorithm_result.get("results", [])
+        
+        # 统计预测结果分布
+        prediction_distribution = {}
+        confidence_scores = []
+        
+        for item in results:
+            predicted_label = item.get("predicted_label", "未知")
+            prediction_distribution[predicted_label] = prediction_distribution.get(predicted_label, 0) + 1
+            
+            if "probability" in item:
+                confidence_scores.append(item["probability"])
+        
+        avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0
+        
+        return {
+            "summary": f"分类分析完成，对 {len(results)} 个数据点进行了分类预测",
+            "total_predictions": len(results),
+            "prediction_distribution": prediction_distribution,
+            "average_confidence": round(avg_confidence, 3),
+            "confidence_range": {
+                "min": round(min(confidence_scores), 3) if confidence_scores else 0,
+                "max": round(max(confidence_scores), 3) if confidence_scores else 0
+            },
+            "sample_predictions": results[:5]  # 显示前5个预测结果
+        }
+    
+    def _format_trend_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        格式化趋势分析算法结果
+        
+        Args:
+            algorithm_result: 趋势分析算法结果
+            original_data: 原始数据
+            
+        Returns:
+            Dict[str, Any]: 格式化后的趋势分析结果
+        """
+        # 解析趋势分析结果
+        success = algorithm_result.get('success', False)
+        message = algorithm_result.get('message', '')
+        results = algorithm_result.get('results', {})
+        metadata = algorithm_result.get('metadata', {})
+        
+        if not success or not results:
+            # 如果分析失败或没有结果，返回基本信息
+            return {
+                "summary": f"趋势分析状态: {message}",
+                "status": "failed" if not success else "no_results",
+                "data_points": len(original_data),
+                "message": message
+            }
+        
+        # 提取关键结果信息
+        trend_direction = results.get('trend_direction', 'unknown')
+        slope = results.get('slope', 0)
+        p_value = results.get('p_value', 1)
+        r_squared = results.get('r_squared', 0)
+        statistical_significance = results.get('statistical_significance', False)
+        confidence_level = results.get('confidence_level', 0.95)
+        method = results.get('method', metadata.get('method_used', '未知方法'))
+        interpretation = results.get('interpretation', '')
+        confidence_interval = results.get('confidence_interval', [])
+        
+        # 构建用户友好的趋势方向描述
+        direction_map = {
+            'increasing': '上升',
+            'decreasing': '下降', 
+            'stable': '稳定',
+            'no_trend': '无明显趋势'
+        }
+        direction_chinese = direction_map.get(trend_direction, trend_direction)
+        
+        # 构建趋势强度描述
+        r_squared_percent = round(r_squared * 100, 1)
+        if r_squared >= 0.7:
+            trend_strength = "强"
+        elif r_squared >= 0.3:
+            trend_strength = "中等"
+        else:
+            trend_strength = "弱"
+        
+        # 构建统计显著性描述
+        significance_desc = "统计显著" if statistical_significance else "统计不显著"
+        confidence_percent = int(confidence_level * 100)
+        
+        # 构建主要描述
+        if trend_direction in ['increasing', 'decreasing']:
+            slope_desc = f"每日变化约{abs(slope):.2f}个单位"
+            main_description = f"趋势分析完成，检测到{direction_chinese}趋势（{slope_desc}），趋势强度为{trend_strength}（R²={r_squared_percent}%），在{confidence_percent}%置信水平下{significance_desc}。"
+        else:
+            main_description = f"趋势分析完成，数据呈现{direction_chinese}状态，在{confidence_percent}%置信水平下{significance_desc}。"
+        
+        # 构建详细分析结果
+        analysis_details = {
+            "趋势方向": direction_chinese,
+            "趋势强度": f"{trend_strength}（R²={r_squared_percent}%）",
+            "统计显著性": f"{significance_desc}（p值={p_value:.4f}）",
+            "分析方法": method,
+            "置信水平": f"{confidence_percent}%",
+            "数据点数": len(original_data)
+        }
+        
+        if trend_direction in ['increasing', 'decreasing']:
+            analysis_details["变化率"] = f"{slope:.3f}单位/天"
+            if confidence_interval and len(confidence_interval) == 2:
+                analysis_details["置信区间"] = f"[{confidence_interval[0]:.3f}, {confidence_interval[1]:.3f}]"
+        
+        # 构建简化视图
+        simple_view = {
+            "趋势": direction_chinese,
+            "强度": trend_strength,
+            "显著性": "显著" if statistical_significance else "不显著",
+            "解释": interpretation if interpretation else f"数据呈现{direction_chinese}趋势"
+        }
+        
+        # 构建技术细节（供高级用户参考）
+        technical_details = {
+            "slope": slope,
+            "intercept": results.get('intercept', 0),
+            "p_value": p_value,
+            "r_squared": r_squared,
+            "std_error": results.get('std_error', 0),
+            "confidence_interval": confidence_interval,
+            "sample_size": results.get('sample_size', len(original_data)),
+            "method": method
+        }
+        
+        return {
+            "summary": main_description,
+            "trend_direction": direction_chinese,
+            "trend_strength": trend_strength,
+            "statistical_significance": statistical_significance,
+            "confidence_level": confidence_percent,
+            "data_points": len(original_data),
+            "analysis_details": analysis_details,
+            "simple_view": simple_view,
+            "technical_details": technical_details,
+            "interpretation": interpretation if interpretation else f"在分析的{len(original_data)}个数据点中，检测到{direction_chinese}趋势模式"
+        }
+    
+    def _format_anomaly_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        格式化异常检测算法结果（统一的异常检测格式化）
+        
+        Args:
+            algorithm_result: 异常检测算法结果
+            original_data: 原始数据
+            
+        Returns:
+            Dict[str, Any]: 格式化后的异常检测结果
+        """
+        success = algorithm_result.get('success', False)
+        status = algorithm_result.get('status', 'unknown')
+        
+        if not success and status != 'success':
+            return {
+                "summary": f"异常检测失败: {algorithm_result.get('message', '未知错误')}",
+                "status": "failed",
+                "data_points": len(original_data)
+            }
+        
+        # 解析新的返回格式
+        results = algorithm_result.get('results', [])
+        
+        # 统计异常点和正常点
+        anomalies = []
+        normal_points = []
+        clusters = {}
+        
+        for item in results:
+            cluster_id = item.get('cluster_id')
+            item_id = item.get('id')
+            
+            if cluster_id == -1:
+                # cluster_id = -1 表示异常点
+                anomalies.append(item)
+            else:
+                # cluster_id >= 0 表示正常聚类点
+                normal_points.append(item)
+                if cluster_id not in clusters:
+                    clusters[cluster_id] = []
+                clusters[cluster_id].append(item)
+        
+        total_points = len(results)
+        anomaly_count = len(anomalies)
+        normal_count = len(normal_points)
+        cluster_count = len(clusters)
+        
+        # 计算异常比例
+        anomaly_rate = (anomaly_count / total_points * 100) if total_points > 0 else 0
+        
+        # 构建主要描述
+        if cluster_count > 0:
+            # 有正常聚类的情况
+            main_description = f"异常检测完成，在{total_points}个数据点中检测到{anomaly_count}个异常点（异常率{anomaly_rate:.1f}%），{normal_count}个正常点，形成{cluster_count}个聚类。"
+            algorithm_type_desc = "基于DBSCAN密度聚类的异常检测"
+        else:
+            # 全部都是异常点的情况
+            main_description = f"异常检测完成，在{total_points}个数据点中检测到{anomaly_count}个异常点（异常率{anomaly_rate:.1f}%），未形成有效聚类。"
+            algorithm_type_desc = "基于DBSCAN密度聚类的异常检测"
+        
+        # 构建详细分析结果
+        analysis_details = {
+            "总数据点": total_points,
+            "异常点数量": anomaly_count,
+            "正常点数量": normal_count,
+            "异常率": f"{anomaly_rate:.1f}%",
+            "算法类型": algorithm_type_desc
+        }
+        
+        if cluster_count > 0:
+            analysis_details["聚类数量"] = cluster_count
+            # 添加聚类分布信息
+            cluster_distribution = {f"聚类{cid}": len(items) for cid, items in clusters.items()}
+            analysis_details["聚类分布"] = cluster_distribution
+        
+        # 构建简化视图
+        simple_view = {
+            "异常检测": f"发现{anomaly_count}个异常点",
+            "异常率": f"{anomaly_rate:.1f}%",
+            "状态": "检测完成"
+        }
+        
+        if cluster_count > 0:
+            simple_view["聚类结果"] = f"形成{cluster_count}个聚类"
+        else:
+            simple_view["聚类结果"] = "未形成有效聚类"
+        
+        # 构建异常点详情（显示前10个，包含实际数据）
+        anomaly_details = []
+        if anomalies:
+            for i, anomaly in enumerate(anomalies[:10]):
+                # 提取异常点的所有数据字段，不只是id
+                anomaly_info = {"cluster_id": -1}
+                
+                # 复制异常点的所有字段（除了cluster_id）
+                for key, value in anomaly.items():
+                    if key != 'cluster_id':
+                        anomaly_info[key] = value
+                
+                # 如果没有id字段，生成一个标识
+                if 'id' not in anomaly_info:
+                    anomaly_info['id'] = f'异常点{i+1}'
+                
+                anomaly_details.append(anomaly_info)
+        
+        # 构建正常点详情（显示前5个，包含实际数据）
+        normal_details = []
+        if normal_points:
+            for i, normal in enumerate(normal_points[:5]):
+                # 提取正常点的所有数据字段
+                normal_info = {"cluster_id": normal.get('cluster_id', 0)}
+                
+                # 复制正常点的所有字段（除了cluster_id）
+                for key, value in normal.items():
+                    if key != 'cluster_id':
+                        normal_info[key] = value
+                
+                # 如果没有id字段，生成一个标识
+                if 'id' not in normal_info:
+                    normal_info['id'] = f'正常点{i+1}'
+                
+                normal_details.append(normal_info)
+        
+        return {
+            "summary": main_description,
+            "anomaly_count": anomaly_count,
+            "normal_count": normal_count,
+            "cluster_count": cluster_count,
+            "anomaly_rate": round(anomaly_rate, 1),
+            "data_points": total_points,
+            "analysis_details": analysis_details,
+            "simple_view": simple_view,
+            "anomaly_samples": anomaly_details,
+            "normal_samples": normal_details,
+            "interpretation": f"使用DBSCAN异常检测算法分析了{total_points}个数据点，识别出{anomaly_count}个异常点（cluster_id=-1）和{normal_count}个正常点"
+        }
+    
+    def _format_forecast_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        格式化预测算法结果（单变量/多变量预测）
+        
+        Args:
+            algorithm_result: 预测算法结果
+            original_data: 原始数据
+            
+        Returns:
+            Dict[str, Any]: 格式化后的预测结果
+        """
+        import json
+        
+        success = algorithm_result.get('success', False)
+        
+        if not success:
+            return {
+                "summary": f"预测失败: {algorithm_result.get('message', '未知错误')}",
+                "status": "failed",
+                "data_points": len(original_data)
+            }
+        
+        # 提取关键信息
+        model_used = algorithm_result.get('model_used', 'unknown')
+        results = algorithm_result.get('results', {})
+        predictions = algorithm_result.get('predictions', [])
+        metrics = algorithm_result.get('metrics', {})
+        data_analysis = algorithm_result.get('data_analysis', {})
+        
+        # 获取预测值
+        forecast_values = results.get('forecast', [])
+        timestamps = results.get('timestamps', [])
+        
+        # 如果没有从results获取到，尝试从predictions获取
+        if not forecast_values and predictions:
+            forecast_values = [p.get('value') for p in predictions]
+            timestamps = [p.get('timestamp') for p in predictions]
+        
+        forecast_count = len(forecast_values)
+        
+        # 构建主要描述
+        if model_used and model_used != 'unknown':
+            main_description = f"预测完成，使用{model_used}模型，生成了{forecast_count}个预测值"
+        else:
+            main_description = f"预测完成，生成了{forecast_count}个预测值"
+        
+        # 添加指标信息
+        if metrics:
+            rmse = metrics.get('rmse')
+            mae = metrics.get('mae')
+            mape = metrics.get('mape')
+            if rmse:
+                main_description += f"，RMSE={rmse:.4f}"
+            if mae:
+                main_description += f"，MAE={mae:.4f}"
+            if mape:
+                main_description += f"，MAPE={mape:.2f}%"
+        
+        # 构建预测摘要
+        if forecast_values:
+            min_val = min(forecast_values)
+            max_val = max(forecast_values)
+            avg_val = sum(forecast_values) / len(forecast_values)
+            forecast_summary = {
+                "预测数量": forecast_count,
+                "最小值": round(min_val, 2),
+                "最大值": round(max_val, 2),
+                "平均值": round(avg_val, 2)
+            }
+        else:
+            forecast_summary = {"预测数量": 0}
+        
+        # 构建简化视图
+        simple_view = {
+            "模型": model_used,
+            "预测数量": forecast_count,
+            "历史数据点": len(original_data)
+        }
+        
+        # 构建预测详情（前5个和后5个）
+        forecast_details = []
+        if forecast_values and timestamps:
+            for i, (ts, val) in enumerate(zip(timestamps, forecast_values)):
+                if i < 5 or i >= len(timestamps) - 5:
+                    forecast_details.append({
+                        "timestamp": ts,
+                        "value": round(val, 2) if isinstance(val, (int, float)) else val
+                    })
+                elif i == 5:
+                    forecast_details.append({"note": f"... 省略 {len(timestamps) - 10} 个预测值 ..."})
+        
+        return {
+            "summary": main_description,
+            "model_used": model_used,
+            "forecast_count": forecast_count,
+            "data_points": len(original_data),
+            "forecast_summary": forecast_summary,
+            "simple_view": simple_view,
+            "forecast_details": forecast_details,
+            "metrics": metrics,
+            "data_analysis": data_analysis,
+            "full_response": json.dumps(algorithm_result, indent=2, ensure_ascii=False),
+            "interpretation": f"基于{len(original_data)}个历史数据点，使用{model_used}模型预测了未来{forecast_count}个时间点的值"
+        }
+    
+    def _format_dbscan_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        格式化DBSCAN密度聚类异常检测结果
+        
+        Args:
+            algorithm_result: DBSCAN算法结果
+            original_data: 原始数据
+            
+        Returns:
+            Dict[str, Any]: 格式化后的DBSCAN结果
+        """
+        success = algorithm_result.get('success', False)
+        status = algorithm_result.get('status', 'unknown')
+        
+        if not success and status != 'success':
+            return {
+                "summary": f"DBSCAN密度聚类异常检测失败: {algorithm_result.get('message', '未知错误')}",
+                "status": "failed",
+                "data_points": len(original_data)
+            }
+        
+        # 提取结果信息
+        anomalies = algorithm_result.get('anomalies', [])
+        normal_points = algorithm_result.get('normal_points', [])
+        clusters = algorithm_result.get('clusters', [])
+        
+        total_points = len(original_data)
+        anomaly_count = len(anomalies)
+        normal_count = len(normal_points)
+        cluster_count = len(clusters)
+        
+        # 计算异常比例
+        anomaly_rate = (anomaly_count / total_points * 100) if total_points > 0 else 0
+        
+        # 构建主要描述
+        main_description = f"DBSCAN密度聚类异常检测完成，在{total_points}个数据点中检测到{anomaly_count}个异常点（异常率{anomaly_rate:.1f}%），{normal_count}个正常点，形成{cluster_count}个聚类。"
+        
+        # 构建详细分析结果
+        analysis_details = {
+            "总数据点": total_points,
+            "异常点数量": anomaly_count,
+            "正常点数量": normal_count,
+            "聚类数量": cluster_count,
+            "异常率": f"{anomaly_rate:.1f}%",
+            "算法类型": "DBSCAN密度聚类"
+        }
+        
+        # 构建简化视图
+        simple_view = {
+            "异常检测": f"发现{anomaly_count}个异常点",
+            "异常率": f"{anomaly_rate:.1f}%",
+            "聚类结果": f"形成{cluster_count}个聚类",
+            "状态": "检测完成"
+        }
+        
+        # 构建异常点详情（显示前10个）
+        anomaly_details = []
+        if anomalies:
+            for i, anomaly in enumerate(anomalies[:10]):
+                anomaly_id = anomaly.get('id', f'异常点{i+1}')
+                anomaly_details.append(anomaly_id)
+        
+        return {
+            "summary": main_description,
+            "anomaly_count": anomaly_count,
+            "normal_count": normal_count,
+            "cluster_count": cluster_count,
+            "anomaly_rate": round(anomaly_rate, 1),
+            "data_points": total_points,
+            "analysis_details": analysis_details,
+            "simple_view": simple_view,
+            "anomaly_samples": anomaly_details,
+            "interpretation": f"使用DBSCAN密度聚类算法分析了{total_points}个数据点，识别出{anomaly_count}个异常点和{cluster_count}个正常聚类"
+        }
+    
+    def _format_iforest_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        格式化IForest孤立森林异常检测结果
+        
+        Args:
+            algorithm_result: IForest算法结果
+            original_data: 原始数据
+            
+        Returns:
+            Dict[str, Any]: 格式化后的IForest结果
+        """
+        success = algorithm_result.get('success', False)
+        status = algorithm_result.get('status', 'unknown')
+        
+        if not success and status != 'success':
+            return {
+                "summary": f"IForest孤立森林异常检测失败: {algorithm_result.get('message', '未知错误')}",
+                "status": "failed",
+                "data_points": len(original_data)
+            }
+        
+        # 提取结果信息
+        anomalies = algorithm_result.get('anomalies', [])
+        normal_points = algorithm_result.get('normal_points', [])
+        anomaly_scores = algorithm_result.get('anomaly_scores', [])
+        
+        total_points = len(original_data)
+        anomaly_count = len(anomalies)
+        normal_count = len(normal_points)
+        
+        # 计算异常比例
+        anomaly_rate = (anomaly_count / total_points * 100) if total_points > 0 else 0
+        
+        # 计算异常分数统计
+        avg_anomaly_score = 0
+        max_anomaly_score = 0
+        min_anomaly_score = 0
+        
+        if anomaly_scores:
+            scores = [score.get('score', 0) for score in anomaly_scores if isinstance(score, dict)]
+            if scores:
+                avg_anomaly_score = sum(scores) / len(scores)
+                max_anomaly_score = max(scores)
+                min_anomaly_score = min(scores)
+        
+        # 构建主要描述
+        main_description = f"IForest孤立森林异常检测完成，在{total_points}个数据点中检测到{anomaly_count}个异常点（异常率{anomaly_rate:.1f}%），{normal_count}个正常点。"
+        
+        if avg_anomaly_score > 0:
+            main_description += f"平均异常分数为{avg_anomaly_score:.3f}。"
+        
+        # 构建详细分析结果
+        analysis_details = {
+            "总数据点": total_points,
+            "异常点数量": anomaly_count,
+            "正常点数量": normal_count,
+            "异常率": f"{anomaly_rate:.1f}%",
+            "算法类型": "IForest孤立森林"
+        }
+        
+        if avg_anomaly_score > 0:
+            analysis_details.update({
+                "平均异常分数": f"{avg_anomaly_score:.3f}",
+                "最高异常分数": f"{max_anomaly_score:.3f}",
+                "最低异常分数": f"{min_anomaly_score:.3f}"
+            })
+        
+        # 构建简化视图
+        simple_view = {
+            "异常检测": f"发现{anomaly_count}个异常点",
+            "异常率": f"{anomaly_rate:.1f}%",
+            "异常程度": "高" if avg_anomaly_score > 0.6 else "中" if avg_anomaly_score > 0.3 else "低",
+            "状态": "检测完成"
+        }
+        
+        # 构建异常点详情（显示前10个）
+        anomaly_details = []
+        if anomalies:
+            for i, anomaly in enumerate(anomalies[:10]):
+                anomaly_id = anomaly.get('id', f'异常点{i+1}')
+                anomaly_score = anomaly.get('score', 0)
+                anomaly_details.append({
+                    "id": anomaly_id,
+                    "score": round(anomaly_score, 3) if anomaly_score else 0
+                })
+        
+        return {
+            "summary": main_description,
+            "anomaly_count": anomaly_count,
+            "normal_count": normal_count,
+            "anomaly_rate": round(anomaly_rate, 1),
+            "avg_anomaly_score": round(avg_anomaly_score, 3),
+            "data_points": total_points,
+            "analysis_details": analysis_details,
+            "simple_view": simple_view,
+            "anomaly_samples": anomaly_details,
+            "interpretation": f"使用IForest孤立森林算法分析了{total_points}个数据点，基于数据点的孤立程度识别出{anomaly_count}个异常点"
+        }
+    
+    def _generate_clustering_insights(self, cluster_distribution: Dict[int, int], k_value: int) -> List[str]:
+        """
+        生成聚类分析的洞察
+        
+        Args:
+            cluster_distribution: 聚类分布
+            k_value: K值
+            
+        Returns:
+            List[str]: 洞察列表
+        """
+        insights = []
+        
+        if not cluster_distribution:
+            return insights
+        
+        # 最大和最小聚类大小
+        max_size = max(cluster_distribution.values())
+        min_size = min(cluster_distribution.values())
+        
+        # 聚类大小差异分析
+        if max_size > min_size * 2:
+            insights.append(f"聚类大小差异较大，最大聚类有 {max_size} 个成员，最小聚类有 {min_size} 个成员")
+        else:
+            insights.append(f"各聚类大小相对均衡，成员数量在 {min_size}-{max_size} 之间")
+        
+        # 聚类数量建议
+        if k_value <= 2:
+            insights.append("当前使用较少的聚类数，可能存在更细粒度的分组模式")
+        elif k_value >= 5:
+            insights.append("使用了较多的聚类数，建议检查是否存在过度分割")
+        
+        return insights

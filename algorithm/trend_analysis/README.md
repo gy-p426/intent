@@ -7,6 +7,23 @@
 1. **趋势分解（Decomposition）**：将时间序列分解为趋势、季节性和残差三个组成部分
 2. **趋势检测（Detection）**：检测时间序列是否存在显著的上升或下降趋势
 
+## 架构说明
+
+本模块通过 `AlgorithmExecutor` 调用远程 `forecast_service` 微服务执行趋势分析。
+
+```
+主项目                              远程服务
+┌─────────────────────┐            ┌─────────────────────┐
+│ TrendAnalysisProcessor │  HTTP   │   forecast_service   │
+│   └─ AlgorithmExecutor ├────────►│   (192.168.x.x:8100) │
+└─────────────────────┘            └─────────────────────┘
+```
+
+**配置远程服务地址**：在 `.env` 文件中设置：
+```
+FORECAST_SERVICE_URL=http://192.168.5.106:8100
+```
+
 ## 支持的算法
 
 ### 趋势分解算法
@@ -84,17 +101,11 @@
 
 ## 输出结果
 
-详细的返回参数说明请参考 [算法返回参数规范文档](../API_RESPONSE_SPEC.md)。
+详细的返回参数说明请参考 [算法返回参数规范文档](../趋势分析相关算法返回.md)。
 
 ### 趋势分解输出
 ```json
 {
-  "data_characteristics": {
-    "mean": 1234.56,
-    "std": 123.45,
-    "trend_strength": 0.85,
-    "seasonal_strength": 0.72
-  },
   "decomposition": {
     "trend": [{"timestamp": "2024-01-01", "value": 1200}, ...],
     "seasonal": [{"timestamp": "2024-01-01", "value": 34.56}, ...],
@@ -110,16 +121,11 @@
 ### 趋势检测输出
 ```json
 {
-  "data_characteristics": {
-    "mean": 1234.56,
-    "std": 123.45
-  },
   "detection": {
     "trend_direction": "increasing",
     "sen_slope": 0.0234,
     "p_value": 0.0012,
-    "statistical_significance": true,
-    "interpretation": "检测到明显的上升趋势，趋势斜率: 0.0234"
+    "statistical_significance": true
   },
   "analysis_type": "detection",
   "method_used": "mann_kendall",
@@ -132,7 +138,7 @@
 ```
 algorithm/trend_analysis/
 ├── __init__.py          # 模块初始化，导出主要类
-├── config.py            # 算法配置定义
+├── config.py            # 算法配置定义（TREND_ANALYSIS_CONFIG, TREND_ANALYSIS_RESPONSE）
 ├── extractor.py         # 参数提取器（TrendAnalysisExtractor）
 ├── processor.py         # 数据处理器（TrendAnalysisProcessor）
 └── README.md            # 本文档
@@ -148,12 +154,17 @@ algorithm/trend_analysis/
 1. 将SQL查询结果转换为时间序列格式
 2. 数据清洗和预处理
 3. 验证算法输入
-4. 调用核心趋势分析模块执行分析
+4. 通过 `AlgorithmExecutor` 调用远程 `forecast_service` 执行分析
 
-## 依赖模块
+## 远程服务依赖
 
-本算法整合模块依赖 `algorithm/forecast_core/trend_analysis` 中的核心实现：
-- `TrendService`: 趋势分析核心服务类
+本模块通过 HTTP 调用远程 `forecast_service` 微服务：
+
+- **服务地址配置**：`infrastructure/config.py` 中的 `forecast_service_url`
+- **API 端点**：
+  - 趋势分解：`POST /api/v1/trend/decomposition`
+  - 趋势检测：`POST /api/v1/trend/detection`
+- **执行器**：`algorithm/executor/algorithm_executor.py` 中的 `execute_trend_analysis()`
 
 ## 注意事项
 
@@ -162,16 +173,14 @@ algorithm/trend_analysis/
 3. 线性回归检验假设线性趋势，适合正态分布数据
 4. 自动周期检测可能不准确，建议根据业务知识指定周期
 5. 乘法模型要求数据全为正值
+6. **确保远程 `forecast_service` 服务已启动**
 
 ## 测试
 
 运行测试用例：
 ```bash
-# 运行趋势分析专项测试
+# 运行趋势分析结构测试
 python -m pytest tests/algorithm/test_trend_analysis.py -v
-
-# 运行所有预测算法集成测试
-python -m pytest tests/test_forecast_integration.py -k "trend" -v
 ```
 
 ## 开发指南
@@ -182,7 +191,5 @@ python -m pytest tests/test_forecast_integration.py -k "trend" -v
 ### 修改数据处理逻辑
 在 `processor.py` 中修改数据转换和验证逻辑。
 
-### 添加新的分析方法
-1. 在 `config.py` 中添加新方法的配置
-2. 在 `processor.py` 的 `execute_trend_analysis` 方法中添加新方法的调用逻辑
-3. 更新本文档
+### 修改远程调用逻辑
+在 `algorithm/executor/algorithm_executor.py` 的 `execute_trend_analysis()` 方法中修改。

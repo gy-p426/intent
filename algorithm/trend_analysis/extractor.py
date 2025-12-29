@@ -39,7 +39,7 @@ class TrendAnalysisExtractor(BaseAlgorithmExtractor):
         
         system_prompt = f"""你是时间序列趋势分析专家。根据用户问题和数据库信息，提取趋势分析所需的参数。
 
-重要：你必须严格按照以下规则输出JSON，确保参数名和列名完全匹配数据库中的实际列名。
+重要：你必须严格按照以下规则输出JSON，确保参数名和列名完全匹配SQL查询返回的实际字段名。
 
 趋势分析要求：
 1. timestamp_column: 必须指定一个时间列，用于标识时间序列的时间点
@@ -54,28 +54,33 @@ class TrendAnalysisExtractor(BaseAlgorithmExtractor):
 数据库可用列信息：
 {schema_text}
 
+特别注意：
+- 如果用户问题涉及"出车"、"派车"、"调度"等，时间列通常是"日期"，数值列通常是"出车次数"
+- 如果用户问题涉及销售、订单等，时间列可能是"日期"、"时间"，数值列可能是"销售额"、"订单数"等
+- 字段名可能是中文，请使用SQL查询实际返回的字段名，不要翻译成英文
+
 严格输出规则：
-1. timestamp_column的值必须是数据库中实际存在的时间类型列名
-2. value_column的值必须是数据库中实际存在的数值型列名
-3. 不要创造不存在的列名
-4. 列名必须与数据库schema中的column_name完全一致
+1. timestamp_column的值必须是SQL查询实际返回的时间字段名（可能是中文）
+2. value_column的值必须是SQL查询实际返回的数值字段名（可能是中文）
+3. 不要创造不存在的列名，不要将中文字段名翻译成英文
+4. 列名必须与SQL查询结果中的字段名完全一致
 5. 优先选择有注释说明的列
-6. normalized_query中一定写明返回的数据列（时间列+数值列）
+6. normalized_query中一定写明返回的数据列（时间列+数值列），并标名返回几列数据
 
 输出JSON格式（严格遵守）：
 {{
   "parameter_mapping": {{
-    "timestamp_column": "时间列名",
-    "value_column": "数值列名",
-    "analysis_type": "decomposition或detection",
-    "period": 周期数值或null,
-    "decomposition_model": "additive或multiplicative",
-    "algorithm": "auto/stl/classical",
-    "detection_method": "auto/mann_kendall/linear_regression",
+    "timestamp_column": "日期",
+    "value_column": "出车次数",
+    "analysis_type": "decomposition",
+    "period": null,
+    "decomposition_model": "additive",
+    "algorithm": "auto",
+    "detection_method": "auto",
     "confidence_level": 0.95
   }},
-  "required_columns": ["时间列名", "数值列名"],
-  "normalized_query": "获取XXX的时间和数值数据用于趋势分析"
+  "required_columns": ["日期", "出车次数"],
+  "normalized_query": "获取出车数据的日期和出车次数用于趋势分析，返回2列数据"
 }}"""
         
         user_prompt = f"""用户问题: {question}
@@ -83,11 +88,16 @@ class TrendAnalysisExtractor(BaseAlgorithmExtractor):
 请严格按照系统提示的规则分析用户需求，输出符合趋势分析要求的JSON参数。
 
 关键要求：
-1. 从数据库schema中选择合适的时间列作为timestamp_column
-2. 从数据库schema中选择合适的数值列作为value_column
+1. 从SQL查询结果中选择合适的时间字段作为timestamp_column（如"日期"）
+2. 从SQL查询结果中选择合适的数值字段作为value_column（如"出车次数"）
 3. 根据用户问题判断是需要"趋势分解"还是"趋势检测"
 4. 如果用户提到周期（如日周期、周周期），设置period值
 5. normalized_query一定要写明返回哪些列
+6. 字段名使用中文，与SQL查询返回的字段名保持一致
+
+特别提醒：
+- 对于出车、派车相关问题，时间字段通常是"日期"，数值字段通常是"出车次数"
+- 不要将中文字段名翻译成英文（如不要用dispatch_date代替"日期"）
 
 输出JSON格式的参数提取结果。"""
         

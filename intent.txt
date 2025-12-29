@@ -55,13 +55,15 @@ text,intent
 分析文档内容相似性,similarity
 比较时间序列相似程度,similarity
 分析销售数据的趋势变化,trend
-预测市场需求的长期趋势,trend
 识别股价的上升下降趋势,trend
 分析用户活跃度的季节性趋势,trend
 观察气温变化的长期趋势,trend
 分析业务增长趋势,trend
 识别数据变化趋势,trend
-预测未来发展趋势,trend
+分解时间序列的趋势和季节性成分,trend
+检测销售额是否有显著上升趋势,trend
+提取温度数据的周期性模式,trend
+判断用户活跃度的变化方向,trend
 预测下个月的销售额,predict
 预测明天的天气情况,predict
 预估未来一周的网站流量,predict
@@ -107,6 +109,9 @@ text,intent
 综合分析数据趋势和周期性,trend
 分析指标的周期性变化,trend
 检测数据趋势的转折点,trend
+使用STL分解时间序列,trend
+使用Mann-Kendall检验趋势,trend
+分析数据的趋势方向和显著性,trend
 预测未来14天的销售额,predict
 预测下周的用户活跃度,predict
 基于历史数据预测能耗,predict

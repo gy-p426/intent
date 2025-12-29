@@ -44,6 +44,20 @@ class TrendAnalysisProcessor(BaseAlgorithmProcessor):
             timestamp_column = param_mapping.get('timestamp_column')
             value_column = param_mapping.get('value_column')
             
+            # 添加调试日志
+            logger.info(f"期望的时间字段名: {timestamp_column}")
+            logger.info(f"期望的数值字段名: {value_column}")
+            
+            if sql_result:
+                actual_fields = list(sql_result[0].keys())
+                logger.info(f"SQL返回的实际字段名: {actual_fields}")
+                
+                # 检查字段名是否匹配
+                if timestamp_column not in actual_fields:
+                    logger.warning(f"时间字段 '{timestamp_column}' 不在SQL结果中，实际字段: {actual_fields}")
+                if value_column not in actual_fields:
+                    logger.warning(f"数值字段 '{value_column}' 不在SQL结果中，实际字段: {actual_fields}")
+            
             # 转换数据格式为趋势分析所需格式
             converted_data = await self._convert_to_time_series_format(
                 sql_result, timestamp_column, value_column
@@ -196,78 +210,32 @@ class TrendAnalysisProcessor(BaseAlgorithmProcessor):
         self,
         request: AlgorithmExecutionRequest
     ) -> Dict[str, Any]:
-        """执行趋势分析（调用forecast_core）"""
+        """
+        执行趋势分析（调用远程 forecast_service）
+        
+        Args:
+            request: 算法执行请求
+            
+        Returns:
+            趋势分析结果字典
+        """
         try:
-            from algorithm.forecast_core.trend_analysis.core.trend_service import TrendService
+            from algorithm.executor.algorithm_executor import AlgorithmExecutor
             
-            config = request.config
-            data_rows = request.data_rows
-            analysis_type = config.get('analysis_type', 'decomposition')
+            logger.info("执行趋势分析（远程服务）")
             
-            # 初始化趋势分析服务
-            trend_service = TrendService()
-            
-            # 准备数据
-            series = trend_service.prepare_data(data_rows)
-            
-            # 获取数据特征分析
-            characteristics = trend_service.analyze_data_characteristics(series)
-            
-            result = {
-                "data_characteristics": characteristics,
-                "data_points": len(data_rows)
-            }
-            
-            if analysis_type == 'decomposition':
-                # 趋势分解
-                period = config.get('period')
-                if period is None:
-                    period = trend_service.detect_seasonal_period(series)
-                    logger.info(f"自动检测到季节周期: {period}")
+            # 使用 AlgorithmExecutor 调用远程 forecast_service
+            executor = AlgorithmExecutor()
+            try:
+                response = await executor.execute_trend_analysis(request)
                 
-                algorithm = config.get('algorithm', 'auto')
-                if algorithm == 'auto':
-                    algorithm = trend_service.auto_select_decomposition_algorithm(series, period)
-                    logger.info(f"自动选择分解算法: {algorithm}")
-                
-                decomposition_model = config.get('decomposition_model', 'additive')
-                
-                if algorithm == 'stl':
-                    decomposition_result = trend_service.decompose_trend_stl(series, period)
+                if response.status == "success":
+                    logger.info("趋势分析执行成功")
+                    return response.result
                 else:
-                    decomposition_result = trend_service.decompose_trend_classical(
-                        series, period, decomposition_model
-                    )
-                
-                result["decomposition"] = decomposition_result
-                result["analysis_type"] = "decomposition"
-                result["algorithm_used"] = algorithm
-                result["period_used"] = period
-                
-            else:
-                # 趋势检测
-                detection_method = config.get('detection_method', 'auto')
-                confidence_level = config.get('confidence_level', 0.95)
-                
-                if detection_method == 'auto':
-                    detection_method = trend_service.auto_select_trend_method(series)
-                    logger.info(f"自动选择检测方法: {detection_method}")
-                
-                if detection_method == 'mann_kendall':
-                    detection_result = trend_service.detect_trend_mann_kendall(
-                        series, alpha=1-confidence_level
-                    )
-                else:
-                    detection_result = trend_service.detect_trend_linear_regression(
-                        series, confidence_level=confidence_level
-                    )
-                
-                result["detection"] = detection_result
-                result["analysis_type"] = "detection"
-                result["method_used"] = detection_method
-            
-            logger.info(f"趋势分析执行完成，分析类型: {analysis_type}")
-            return result
+                    raise ValueError(f"趋势分析执行失败: {response.message}")
+            finally:
+                await executor.close()
             
         except Exception as e:
             logger.error(f"趋势分析执行失败: {str(e)}")

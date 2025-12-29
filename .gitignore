@@ -1,7 +1,7 @@
 .kiro/
-.env
 文档/
 .vscode/
 frontend/
 .idea/
 tests/
+text2vec-base-chinese/

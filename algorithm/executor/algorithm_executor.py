@@ -3,6 +3,7 @@ Algorithm Executor Implementation
 
 Executes algorithms via external APIs including clustering and classification
 algorithms with support for both synchronous and asynchronous processing.
+Supports service discovery integration with Nacos.
 """
 
 import logging
@@ -19,6 +20,7 @@ from algorithm.models import (
 from algorithm.interfaces import IAlgorithmExecutor, ITaskManager
 from algorithm.processors.data_processor import DataProcessor
 from algorithm.tasks.task_manager import TaskManager
+from algorithm.clients.algorithm_api_client import get_algorithm_api_client
 from infrastructure.config import get_settings
 
 
@@ -26,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class AlgorithmExecutor(IAlgorithmExecutor):
-    """算法执行器实现"""
+    """算法执行器实现（支持服务发现）"""
     
     def __init__(
         self, 
@@ -37,19 +39,29 @@ class AlgorithmExecutor(IAlgorithmExecutor):
         初始化算法执行器
         
         Args:
-            algorithm_apis: 算法API URL映射
+            algorithm_apis: 算法API URL映射（兼容性保留，优先使用服务发现）
             task_manager: 任务管理器实例
         """
         self.settings = get_settings()
-        self.algorithm_apis = algorithm_apis or {
+        
+        # 保留兼容性，但优先使用服务发现
+        self.legacy_algorithm_apis = algorithm_apis or {
             "clustering": self.settings.clustering_api_url,
-            "classification": self.settings.classification_api_url
+            "classification": self.settings.classification_api_url,
+            "forecast": self.settings.forecast_service_url
         }
+        
         self.timeout = self.settings.algorithm_api_timeout
+        self.forecast_timeout = self.settings.forecast_service_timeout
         self.session: Optional[aiohttp.ClientSession] = None
         self.data_processor = DataProcessor()
         self.task_manager = task_manager or TaskManager()
         
+        # 使用新的算法API客户端（支持服务发现）
+        self.algorithm_client = get_algorithm_api_client()
+        
+        logger.info("算法执行器初始化完成，支持服务发现")
+    
     async def _get_session(self) -> aiohttp.ClientSession:
         """获取HTTP会话，如果不存在则创建"""
         if self.session is None or self.session.closed:
@@ -71,44 +83,52 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             AlgorithmExecutionResponse: 执行响应
         """
         logger.info("开始执行聚类算法")
+        logger.info(f"输入数据行数: {len(request.data_rows)}")
+        logger.info(f"聚类配置: {request.config}")
         
         try:
-            # 准备请求数据
-            request_data = {
-                "data_rows": request.data_rows,
-                "config": request.config
-            }
+            # 使用新的算法API客户端
+            result_data = await self.algorithm_client.call_clustering_api(
+                data_rows=request.data_rows,
+                config=request.config
+            )
             
-            # 发送HTTP请求
-            session = await self._get_session()
-            base_url = self.algorithm_apis.get("clustering", "")
-            url = f"{base_url.rstrip('/')}/clustering/kmeans"
+            # 详细记录算法结果
+            logger.info("聚类算法执行成功")
+            logger.info(f"算法返回状态: {result_data.get('status', 'unknown')}")
             
-            logger.debug(f"发送聚类请求到: {url}")
-            
-            async with session.post(url, json=request_data) as response:
-                if response.status == 200:
-                    result_data = await response.json()
+            if result_data.get('status') == 'success':
+                k_used = result_data.get('k_used', 'unknown')
+                results = result_data.get('results', [])
+                logger.info(f"使用的K值: {k_used}")
+                logger.info(f"聚类结果数量: {len(results)}")
+                
+                # 显示聚类结果摘要
+                if results:
+                    cluster_summary = {}
+                    for item in results:
+                        cluster_id = item.get('cluster_id', 'unknown')
+                        cluster_summary[cluster_id] = cluster_summary.get(cluster_id, 0) + 1
                     
-                    return AlgorithmExecutionResponse(
-                        result=result_data,
-                        status="success",
-                        message="聚类算法执行成功"
-                    )
+                    logger.info(f"聚类分布: {cluster_summary}")
+                    logger.info(f"聚类结果示例: {results[:3]}")  # 显示前3个结果
                 else:
-                    error_text = await response.text()
-                    logger.error(f"聚类算法执行失败: {response.status} - {error_text}")
-                    
-                    return AlgorithmExecutionResponse(
-                        status="failed",
-                        message=f"聚类算法执行失败: {error_text}"
-                    )
-                    
-        except Exception as e:
-            logger.error(f"聚类算法执行异常: {str(e)}")
+                    logger.warning("聚类结果为空")
+            else:
+                logger.error(f"聚类算法返回错误状态: {result_data}")
+            
             return AlgorithmExecutionResponse(
-                status="failed",
-                message=f"聚类算法执行异常: {str(e)}"
+                result=result_data,
+                status="success",
+                message="聚类算法执行成功"
+            )
+            
+        except Exception as e:
+            logger.error(f"聚类算法执行失败: {str(e)}")
+            return AlgorithmExecutionResponse(
+                result={},
+                status="error",
+                message=f"聚类算法执行失败: {str(e)}"
             )
     
     async def execute_classification(
@@ -127,60 +147,509 @@ class AlgorithmExecutor(IAlgorithmExecutor):
         logger.info("开始执行分类算法")
         
         try:
-            # 准备请求数据
-            request_data = {
-                "data_rows": request.data_rows,
-                "config": request.config
-            }
-            
-            # 如果有训练数据集，添加到请求中
-            if request.data_sets:
-                request_data["data_sets"] = request.data_sets
-            
-            # 发送HTTP请求
-            session = await self._get_session()
-            base_url = self.algorithm_apis.get("classification", "")
-            url = f"{base_url.rstrip('/')}/classification/predict"
-            
-            logger.debug(f"发送分类请求到: {url}")
-            
-            async with session.post(url, json=request_data) as response:
-                if response.status == 200:
-                    result_data = await response.json()
-                    
-                    # 检查是否返回了task_id（异步处理）
-                    if "task_id" in result_data:
-                        task_id = result_data["task_id"]
-                        # 在任务管理器中创建任务记录
-                        await self.task_manager.create_task(task_id, AlgorithmType.CLASSIFY)
-                        
-                        return AlgorithmExecutionResponse(
-                            task_id=task_id,
-                            status="processing",
-                            message="分类算法异步处理中"
-                        )
-                    else:
-                        # 同步返回结果
-                        return AlgorithmExecutionResponse(
-                            result=result_data,
-                            status="success",
-                            message="分类算法执行成功"
-                        )
-                else:
-                    error_text = await response.text()
-                    logger.error(f"分类算法执行失败: {response.status} - {error_text}")
-                    
-                    return AlgorithmExecutionResponse(
-                        status="failed",
-                        message=f"分类算法执行失败: {error_text}"
-                    )
-                    
-        except Exception as e:
-            logger.error(f"分类算法执行异常: {str(e)}")
-            return AlgorithmExecutionResponse(
-                status="failed",
-                message=f"分类算法执行异常: {str(e)}"
+            # 使用新的算法API客户端
+            result_data = await self.algorithm_client.call_classification_api(
+                data_rows=request.data_rows,
+                data_sets=request.data_sets or [],
+                config=request.config
             )
+            
+            # 检查是否返回了task_id（异步处理）
+            if "task_id" in result_data:
+                task_id = result_data["task_id"]
+                # 在任务管理器中创建任务记录
+                await self.task_manager.create_task(task_id, AlgorithmType.CLASSIFY)
+                
+                return AlgorithmExecutionResponse(
+                    task_id=task_id,
+                    status="processing",
+                    message="分类算法异步处理中"
+                )
+            else:
+                # 同步返回结果
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="success",
+                    message="分类算法执行成功"
+                )
+                
+        except Exception as e:
+            logger.error(f"分类算法执行失败: {str(e)}")
+            return AlgorithmExecutionResponse(
+                result={},
+                status="error",
+                message=f"分类算法执行失败: {str(e)}"
+            )
+    
+    async def execute_anomaly_detection(
+        self, 
+        request: AlgorithmExecutionRequest
+    ) -> AlgorithmExecutionResponse:
+        """
+        执行异常检测算法（DBSCAN）
+        
+        Args:
+            request: 算法执行请求
+            
+        Returns:
+            AlgorithmExecutionResponse: 执行响应
+        """
+        logger.info("开始执行DBSCAN异常检测算法")
+        logger.info(f"输入数据行数: {len(request.data_rows)}")
+        logger.info(f"异常检测配置: {request.config}")
+        
+        try:
+            # 使用新的算法API客户端
+            result_data = await self.algorithm_client.call_anomaly_detection_api(
+                data_rows=request.data_rows,
+                config=request.config
+            )
+            
+            # 详细记录算法结果
+            logger.info("DBSCAN异常检测算法执行成功")
+            logger.info(f"算法返回状态: {result_data.get('status', 'unknown')}")
+            
+            # 将完整的返回结果显示在readable_result中，便于调试和查看原始数据
+            import json
+            readable_result = f"DBSCAN异常检测完整返回结果：\n{json.dumps(result_data, indent=2, ensure_ascii=False)}"
+            
+            if result_data.get('status') == 'success':
+                # 解析新的返回格式
+                results = result_data.get('results', [])
+                
+                # 统计异常点和正常点
+                anomalies = []
+                normal_points = []
+                clusters = {}
+                
+                for item in results:
+                    cluster_id = item.get('cluster_id')
+                    item_id = item.get('id')
+                    
+                    if cluster_id == -1:
+                        # cluster_id = -1 表示异常点
+                        anomalies.append(item)
+                    else:
+                        # cluster_id >= 0 表示正常聚类点
+                        normal_points.append(item)
+                        if cluster_id not in clusters:
+                            clusters[cluster_id] = []
+                        clusters[cluster_id].append(item)
+                
+                logger.info(f"检测到异常点数量: {len(anomalies)}")
+                logger.info(f"正常点数量: {len(normal_points)}")
+                logger.info(f"聚类数量: {len(clusters)}")
+                
+                # 显示异常检测结果摘要
+                if anomalies:
+                    anomaly_ids = [item.get('id', 'unknown') for item in anomalies[:3]]
+                    logger.info(f"异常点示例: {anomaly_ids}")  # 显示前3个异常点ID
+                else:
+                    logger.info("未检测到异常点")
+                
+                # 显示聚类摘要
+                if clusters:
+                    cluster_summary = {f"聚类{cid}": len(items) for cid, items in clusters.items()}
+                    logger.info(f"聚类分布: {cluster_summary}")
+                    
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="success",
+                    message="DBSCAN异常检测算法执行成功",
+                    readable_result=readable_result
+                )
+            else:
+                error_msg = result_data.get('error', result_data.get('message', '未知错误'))
+                logger.error(f"DBSCAN异常检测算法返回错误状态: {result_data}")
+                return AlgorithmExecutionResponse(
+                    result=result_data,  # 即使失败也返回完整结果用于调试
+                    status="error",
+                    message=f"DBSCAN异常检测算法执行失败: {error_msg}",
+                    readable_result=readable_result
+                )
+            
+        except Exception as e:
+            logger.error(f"DBSCAN异常检测算法执行失败: {str(e)}")
+            return AlgorithmExecutionResponse(
+                result={},
+                status="error",
+                message=f"DBSCAN异常检测算法执行失败: {str(e)}",
+                readable_result=f"DBSCAN异常检测异常：{str(e)}"
+            )
+    
+    # async def execute_dbscan(
+    #     self, 
+    #     request: AlgorithmExecutionRequest
+    # ) -> AlgorithmExecutionResponse:
+    #     """
+    #     执行DBSCAN密度聚类异常检测算法
+    #     
+    #     Args:
+    #         request: 算法执行请求
+    #         
+    #     Returns:
+    #         AlgorithmExecutionResponse: 执行响应
+    #     """
+    #     logger.info("开始执行DBSCAN密度聚类异常检测算法")
+    #     logger.info(f"输入数据行数: {len(request.data_rows)}")
+    #     logger.info(f"DBSCAN配置: {request.config}")
+    #     
+    #     try:
+    #         # 使用算法API客户端
+    #         result_data = await self.algorithm_client.call_anomaly_detection_api(
+    #             data_rows=request.data_rows,
+    #             config=request.config
+    #         )
+    #         
+    #         logger.info("DBSCAN密度聚类异常检测算法执行成功")
+    #         logger.info(f"算法返回状态: {result_data.get('status', 'unknown')}")
+    #         
+    #         if result_data.get('status') == 'success':
+    #             anomalies = result_data.get('anomalies', [])
+    #             normal_points = result_data.get('normal_points', [])
+    #             clusters = result_data.get('clusters', [])
+    #             
+    #             logger.info(f"检测到异常点数量: {len(anomalies)}")
+    #             logger.info(f"正常点数量: {len(normal_points)}")
+    #             logger.info(f"聚类数量: {len(clusters)}")
+    #         
+    #         return AlgorithmExecutionResponse(
+    #             result=result_data,
+    #             status="success",
+    #             message="DBSCAN密度聚类异常检测执行成功"
+    #         )
+    #         
+    #     except Exception as e:
+    #         logger.error(f"DBSCAN密度聚类异常检测执行失败: {str(e)}")
+    #         return AlgorithmExecutionResponse(
+    #             result={},
+    #             status="error",
+    #             message=f"DBSCAN密度聚类异常检测执行失败: {str(e)}"
+    #         )
+    
+    # async def execute_iforest(
+    #     self, 
+    #     request: AlgorithmExecutionRequest
+    # ) -> AlgorithmExecutionResponse:
+    #     """
+    #     执行IForest孤立森林异常检测算法
+    #     
+    #     Args:
+    #         request: 算法执行请求
+    #         
+    #     Returns:
+    #         AlgorithmExecutionResponse: 执行响应
+    #     """
+    #     logger.info("开始执行IForest孤立森林异常检测算法")
+    #     logger.info(f"输入数据行数: {len(request.data_rows)}")
+    #     logger.info(f"IForest配置: {request.config}")
+    #     
+    #     try:
+    #         # 使用算法API客户端
+    #         result_data = await self.algorithm_client.call_iforest_api(
+    #             data_rows=request.data_rows,
+    #             config=request.config
+    #         )
+    #         
+    #         logger.info("IForest孤立森林异常检测算法执行成功")
+    #         logger.info(f"算法返回状态: {result_data.get('status', 'unknown')}")
+    #         
+    #         if result_data.get('status') == 'success':
+    #             anomalies = result_data.get('anomalies', [])
+    #             normal_points = result_data.get('normal_points', [])
+    #             anomaly_scores = result_data.get('anomaly_scores', [])
+    #             
+    #             logger.info(f"检测到异常点数量: {len(anomalies)}")
+    #             logger.info(f"正常点数量: {len(normal_points)}")
+    #             logger.info(f"异常分数数量: {len(anomaly_scores)}")
+    #         
+    #         return AlgorithmExecutionResponse(
+    #             result=result_data,
+    #             status="success",
+    #             message="IForest孤立森林异常检测执行成功"
+    #         )
+    #         
+    #     except Exception as e:
+    #         logger.error(f"IForest孤立森林异常检测执行失败: {str(e)}")
+    #         return AlgorithmExecutionResponse(
+    #             result={},
+    #             status="error",
+    #             message=f"IForest孤立森林异常检测执行失败: {str(e)}"
+    #         )
+    
+    # =========================================================================
+    # Forecast Service 执行方法
+    # =========================================================================
+    
+    async def _get_forecast_session(self) -> aiohttp.ClientSession:
+        """获取 Forecast Service 专用的 HTTP 会话"""
+        timeout = aiohttp.ClientTimeout(total=self.forecast_timeout)
+        return aiohttp.ClientSession(timeout=timeout)
+    
+    async def execute_trend_analysis(
+        self,
+        request: AlgorithmExecutionRequest
+    ) -> AlgorithmExecutionResponse:
+        """
+        执行趋势分析算法
+        
+        Args:
+            request: 算法执行请求
+            
+        Returns:
+            AlgorithmExecutionResponse: 执行响应
+        """
+        logger.info("开始执行趋势分析算法")
+        logger.info(f"输入数据行数: {len(request.data_rows)}")
+        logger.info(f"趋势分析配置: {request.config}")
+        
+        try:
+            # 使用新的算法API客户端
+            result_data = await self.algorithm_client.call_trend_analysis_api(
+                data_rows=request.data_rows,
+                config=request.config
+            )
+            
+            logger.info("趋势分析算法执行成功")
+            logger.info(f"算法返回状态: {result_data.get('status', 'unknown')}")
+            
+            # 临时：将完整的返回结果显示在readable_result中，便于调试
+            import json
+            readable_result = f"趋势分析完整返回结果：\n{json.dumps(result_data, indent=2, ensure_ascii=False)}"
+            
+            if result_data.get('status') == 'success':
+                logger.info("趋势分析结果获取成功")
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="success",
+                    message="趋势分析执行成功",
+                    readable_result=readable_result
+                )
+            else:
+                error_msg = result_data.get('error', result_data.get('message', '未知错误'))
+                logger.error(f"趋势分析执行失败: {error_msg}")
+                return AlgorithmExecutionResponse(
+                    result=result_data,  # 即使失败也返回完整结果用于调试
+                    status="error",
+                    message=f"趋势分析执行失败: {error_msg}",
+                    readable_result=readable_result
+                )
+                
+        except Exception as e:
+            logger.error(f"趋势分析执行失败: {str(e)}")
+            return AlgorithmExecutionResponse(
+                result={},
+                status="error",
+                message=f"趋势分析执行失败: {str(e)}",
+                readable_result=f"趋势分析异常：{str(e)}"
+            )
+            if session and not session.closed:
+                await session.close()
+    
+    def _prepare_trend_request(
+        self,
+        request: AlgorithmExecutionRequest,
+        analysis_type: str
+    ) -> Dict[str, Any]:
+        """准备趋势分析请求数据"""
+        config = request.config
+        data_rows = request.data_rows
+        
+        # 转换数据格式
+        api_data = [
+            {"timestamp": row["timestamp"], "value": row["value"]}
+            for row in data_rows
+            if "timestamp" in row and "value" in row
+        ]
+        
+        if analysis_type == 'decomposition':
+            payload = {"data": api_data}
+            if config.get('period') is not None:
+                payload["period"] = config["period"]
+            if config.get('decomposition_model'):
+                payload["decomposition_model"] = config["decomposition_model"]
+            if config.get('algorithm'):
+                payload["algorithm"] = config["algorithm"]
+        else:  # detection
+            payload = {"data": api_data}
+            if config.get('detection_method'):
+                payload["method"] = config["detection_method"]
+            if config.get('confidence_level') is not None:
+                payload["confidence_level"] = config["confidence_level"]
+            payload["include_seasonal_adjustment"] = config.get('include_seasonal_adjustment', True)
+        
+        return payload
+    
+    def _convert_trend_response(
+        self,
+        api_response: Dict[str, Any],
+        analysis_type: str
+    ) -> Dict[str, Any]:
+        """转换趋势分析响应为内部格式"""
+        metadata = api_response.get('metadata', {})
+        results = api_response.get('results', {})
+        
+        if analysis_type == 'decomposition':
+            return {
+                "decomposition": {
+                    "trend": results.get('trend', []),
+                    "seasonal": results.get('seasonal', []),
+                    "residual": results.get('residual', []),
+                },
+                "analysis_type": "decomposition",
+                "algorithm_used": metadata.get('algorithm_selected', 'unknown'),
+                "period_used": metadata.get('period_detected', 0),
+                "data_characteristics": metadata.get('data_characteristics', {}),
+                "data_points": metadata.get('data_points', 0),
+            }
+        else:  # detection
+            return {
+                "detection": results,
+                "analysis_type": "detection",
+                "method_used": metadata.get('method_selected', 'unknown'),
+                "data_characteristics": metadata.get('data_characteristics', {}),
+                "data_points": metadata.get('data_points', 0),
+            }
+    
+    async def execute_univariate_forecast(
+        self,
+        request: AlgorithmExecutionRequest
+    ) -> AlgorithmExecutionResponse:
+        """
+        执行单变量预测算法（调用 forecast_service）
+        
+        Args:
+            request: 算法执行请求
+            
+        Returns:
+            AlgorithmExecutionResponse: 执行响应
+        """
+        logger.info("开始执行单变量预测算法")
+        logger.info(f"输入数据行数: {len(request.data_rows)}")
+        logger.info(f"单变量预测配置: {request.config}")
+        
+        try:
+            # 使用算法API客户端调用
+            result_data = await self.algorithm_client.call_univariate_forecast_api(
+                data_rows=request.data_rows,
+                config=request.config
+            )
+            
+            logger.info("单变量预测算法执行成功")
+            logger.info(f"算法返回状态: {result_data.get('success', 'unknown')}")
+            
+            # 将完整的返回结果显示在readable_result中，便于调试
+            import json
+            readable_result = f"单变量预测完整返回结果：\n{json.dumps(result_data, indent=2, ensure_ascii=False)}"
+            
+            if result_data.get('success'):
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="success",
+                    message="单变量预测执行成功",
+                    readable_result=readable_result
+                )
+            else:
+                error_msg = result_data.get('message', '未知错误')
+                logger.error(f"单变量预测执行失败: {error_msg}")
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="error",
+                    message=f"单变量预测执行失败: {error_msg}",
+                    readable_result=readable_result
+                )
+                
+        except Exception as e:
+            logger.error(f"单变量预测执行异常: {str(e)}")
+            return AlgorithmExecutionResponse(
+                result={},
+                status="error",
+                message=f"单变量预测执行异常: {str(e)}",
+                readable_result=f"单变量预测异常：{str(e)}"
+            )
+            
+    async def execute_multivariate_forecast(
+        self,
+        request: AlgorithmExecutionRequest
+    ) -> AlgorithmExecutionResponse:
+        """
+        执行多变量预测算法（调用 forecast_service）
+        
+        Args:
+            request: 算法执行请求
+            
+        Returns:
+            AlgorithmExecutionResponse: 执行响应
+        """
+        logger.info("开始执行多变量预测算法")
+        logger.info(f"输入数据行数: {len(request.data_rows)}")
+        logger.info(f"多变量预测配置: {request.config}")
+        
+        try:
+            # 使用算法API客户端调用
+            result_data = await self.algorithm_client.call_multivariate_forecast_api(
+                data_rows=request.data_rows,
+                config=request.config
+            )
+            
+            logger.info("多变量预测算法执行成功")
+            logger.info(f"算法返回状态: {result_data.get('success', 'unknown')}")
+            
+            # 将完整的返回结果显示在readable_result中，便于调试
+            import json
+            readable_result = f"多变量预测完整返回结果：\n{json.dumps(result_data, indent=2, ensure_ascii=False)}"
+            
+            if result_data.get('success'):
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="success",
+                    message="多变量预测执行成功",
+                    readable_result=readable_result
+                )
+            else:
+                error_msg = result_data.get('message', '未知错误')
+                logger.error(f"多变量预测执行失败: {error_msg}")
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="error",
+                    message=f"多变量预测执行失败: {error_msg}",
+                    readable_result=readable_result
+                )
+                
+        except Exception as e:
+            logger.error(f"多变量预测执行异常: {str(e)}")
+            return AlgorithmExecutionResponse(
+                result={},
+                status="error",
+                message=f"多变量预测执行异常: {str(e)}",
+                readable_result=f"多变量预测异常：{str(e)}"
+            )
+    
+    async def forecast_service_health_check(self) -> bool:
+        """
+        检查 Forecast Service 健康状态
+        
+        Returns:
+            bool: 服务是否健康
+        """
+        session = None
+        try:
+            base_url = self.algorithm_apis.get("forecast", "")
+            if not base_url:
+                return False
+            
+            session = await self._get_forecast_session()
+            url = f"{base_url.rstrip('/')}/health"
+            
+            async with session.get(url) as response:
+                return response.status == 200
+                
+        except Exception as e:
+            logger.error(f"Forecast Service 健康检查失败: {str(e)}")
+            return False
+        finally:
+            if session and not session.closed:
+                await session.close()
     
     async def poll_async_task(self, task_id: str) -> AsyncGenerator[AsyncTaskResponse, None]:
         """
@@ -201,107 +670,91 @@ class AlgorithmExecutor(IAlgorithmExecutor):
         last_progress_percent = 0
         
         try:
-            session = await self._get_session()
-            base_url = self.algorithm_apis.get("classification", "")
-            url = f"{base_url.rstrip('/')}/classification/task/{task_id}"
-            
             while elapsed_time < max_wait_time:
                 poll_count += 1
                 poll_start_time = datetime.utcnow()
                 
                 try:
-                    async with session.get(url) as response:
-                        if response.status == 200:
-                            task_data = await response.json()
-                            
-                            # 解析任务状态
-                            status_str = task_data.get("status", "processing")
-                            try:
-                                status = TaskStatus(status_str)
-                            except ValueError:
-                                status = TaskStatus.PROCESSING
-                            
-                            # 增强进度信息
-                            progress = task_data.get("progress", {})
-                            if progress:
-                                current_progress = progress.get("percent", 0)
-                                progress_delta = current_progress - last_progress_percent
-                                
-                                # 添加进度分析
-                                progress["poll_count"] = poll_count
-                                progress["progress_delta"] = progress_delta
-                                progress["elapsed_time_seconds"] = elapsed_time
-                                
-                                # 估算剩余时间
-                                if progress_delta > 0 and current_progress > 0:
-                                    estimated_total_time = elapsed_time * (100 / current_progress)
-                                    estimated_remaining_time = estimated_total_time - elapsed_time
-                                    progress["estimated_remaining_seconds"] = max(0, estimated_remaining_time)
-                                
-                                last_progress_percent = current_progress
-                            
-                            # 增强训练日志
-                            logs = task_data.get("logs", [])
-                            if logs:
-                                # 为每个日志条目添加时间戳
-                                enhanced_logs = []
-                                for log_entry in logs:
-                                    if isinstance(log_entry, str):
-                                        enhanced_logs.append({
-                                            "timestamp": datetime.utcnow().isoformat(),
-                                            "content": log_entry,
-                                            "poll_count": poll_count
-                                        })
-                                    else:
-                                        enhanced_logs.append(log_entry)
-                                logs = enhanced_logs
-                            
-                            # 提取和增强指标信息
-                            metrics = task_data.get("metrics", {})
-                            if not metrics and logs:
-                                # 尝试从日志中提取指标
-                                metrics = self._extract_metrics_from_logs(logs)
-                            
-                            # 添加轮询指标
-                            poll_metrics = {
-                                "poll_count": poll_count,
-                                "poll_interval_seconds": poll_interval,
-                                "elapsed_time_seconds": elapsed_time,
-                                "poll_response_time_ms": (datetime.utcnow() - poll_start_time).total_seconds() * 1000
-                            }
-                            
-                            if metrics:
-                                metrics.update(poll_metrics)
+                    # 使用新的算法API客户端查询任务状态
+                    task_data = await self.algorithm_client.query_task_status("classification", task_id)
+                    
+                    # 解析任务状态
+                    status_str = task_data.get("status", "processing")
+                    try:
+                        status = TaskStatus(status_str)
+                    except ValueError:
+                        status = TaskStatus.PROCESSING
+                    
+                    # 增强进度信息
+                    progress = task_data.get("progress", {})
+                    if progress:
+                        current_progress = progress.get("percent", 0)
+                        progress_delta = current_progress - last_progress_percent
+                        
+                        # 添加进度分析
+                        progress["poll_count"] = poll_count
+                        progress["progress_delta"] = progress_delta
+                        progress["elapsed_time_seconds"] = elapsed_time
+                        
+                        # 估算剩余时间
+                        if progress_delta > 0 and current_progress > 0:
+                            estimated_total_time = elapsed_time * (100 / current_progress)
+                            estimated_remaining_time = estimated_total_time - elapsed_time
+                            progress["estimated_remaining_seconds"] = max(0, estimated_remaining_time)
+                        
+                        last_progress_percent = current_progress
+                    
+                    # 增强训练日志
+                    logs = task_data.get("logs", [])
+                    if logs:
+                        # 为每个日志条目添加时间戳
+                        enhanced_logs = []
+                        for log_entry in logs:
+                            if isinstance(log_entry, str):
+                                enhanced_logs.append({
+                                    "timestamp": datetime.utcnow().isoformat(),
+                                    "content": log_entry,
+                                    "poll_count": poll_count
+                                })
                             else:
-                                metrics = poll_metrics
-                            
-                            task_response = AsyncTaskResponse(
-                                task_id=task_id,
-                                status=status,
-                                progress=progress,
-                                result=task_data.get("result"),
-                                error=task_data.get("error"),
-                                logs=[log.get("content", log) if isinstance(log, dict) else log for log in logs],
-                                metrics=metrics
-                            )
-                            
-                            yield task_response
-                            
-                            # 如果任务完成或失败，停止轮询
-                            if status in [TaskStatus.SUCCESS, TaskStatus.FAILED]:
-                                logger.info(f"异步任务完成: {task_id}, 状态: {status.value}, 轮询次数: {poll_count}")
-                                return
-                        else:
-                            error_text = await response.text()
-                            logger.error(f"查询任务状态失败: {response.status} - {error_text}")
-                            
-                            yield AsyncTaskResponse(
-                                task_id=task_id,
-                                status=TaskStatus.FAILED,
-                                error=f"查询任务状态失败: {error_text}",
-                                metrics={"poll_count": poll_count, "failed_at_poll": poll_count}
-                            )
-                            return
+                                enhanced_logs.append(log_entry)
+                        logs = enhanced_logs
+                    
+                    # 提取和增强指标信息
+                    metrics = task_data.get("metrics", {})
+                    if not metrics and logs:
+                        # 尝试从日志中提取指标
+                        metrics = self._extract_metrics_from_logs(logs)
+                    
+                    # 添加轮询指标
+                    poll_metrics = {
+                        "poll_count": poll_count,
+                        "poll_interval_seconds": poll_interval,
+                        "elapsed_time_seconds": elapsed_time,
+                        "poll_response_time_ms": (datetime.utcnow() - poll_start_time).total_seconds() * 1000
+                    }
+                    
+                    if metrics:
+                        metrics.update(poll_metrics)
+                    else:
+                        metrics = poll_metrics
+                    
+                    task_response = AsyncTaskResponse(
+                        task_id=task_id,
+                        status=status,
+                        progress=progress,
+                        result=task_data.get("result"),
+                        error=task_data.get("error"),
+                        logs=[log.get("content", log) if isinstance(log, dict) else log for log in logs],
+                        metrics=metrics
+                    )
+                    
+                    yield task_response
+                    
+                    # 如果任务完成或失败，停止轮询
+                    if status in [TaskStatus.SUCCESS, TaskStatus.FAILED]:
+                        logger.info(f"异步任务完成: {task_id}, 状态: {status.value}, 轮询次数: {poll_count}")
+                        return
                 
                 except Exception as e:
                     logger.error(f"轮询任务状态异常: {str(e)}")
@@ -502,10 +955,35 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             )
             
             # 根据算法类型执行相应的算法
-            if "聚类" in algorithm_config.name or parameters.algorithm_type.value == "cluster":
+            algorithm_type = parameters.algorithm_type.value
+            algorithm_name = algorithm_config.name
+            
+            if "聚类" in algorithm_name or algorithm_type == "cluster":
                 return await self.execute_clustering(algorithm_request)
-            elif "分类" in algorithm_config.name or parameters.algorithm_type.value == "classify":
+            elif "分类" in algorithm_name or algorithm_type == "classify":
                 return await self.execute_classification(algorithm_request)
+            elif "趋势" in algorithm_name or algorithm_type == "trend":
+                return await self.execute_trend_analysis(algorithm_request)
+            elif "单变量" in algorithm_name or algorithm_type == "univariate_forecast":
+                return await self.execute_univariate_forecast(algorithm_request)
+            elif "多变量" in algorithm_name or algorithm_type == "multivariate_forecast":
+                return await self.execute_multivariate_forecast(algorithm_request)
+            elif algorithm_type == "predict":
+                # 预测类型需要根据子类型判断
+                sub_type = parameters.parameter_mapping.get('sub_algorithm', '')
+                if 'univariate' in sub_type or '单变量' in sub_type:
+                    return await self.execute_univariate_forecast(algorithm_request)
+                elif 'multivariate' in sub_type or '多变量' in sub_type:
+                    return await self.execute_multivariate_forecast(algorithm_request)
+                else:
+                    # 默认使用单变量预测
+                    return await self.execute_univariate_forecast(algorithm_request)
+            # elif algorithm_type == "dbscan" or "dbscan" in algorithm_name.lower() or "密度聚类" in algorithm_name:
+            #     return await self.execute_dbscan(algorithm_request)
+            # elif algorithm_type == "iforest" or "iforest" in algorithm_name.lower() or "孤立森林" in algorithm_name:
+            #     return await self.execute_iforest(algorithm_request)
+            elif "异常" in algorithm_config.name or parameters.algorithm_type.value == "anomaly":
+                return await self.execute_anomaly_detection(algorithm_request)
             else:
                 # 对于其他算法类型，可以扩展支持
                 logger.warning(f"暂不支持的算法类型: {parameters.algorithm_type}")

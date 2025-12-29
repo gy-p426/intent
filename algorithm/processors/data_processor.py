@@ -783,15 +783,33 @@ class DataProcessor(IDataProcessor):
     def _infer_algorithm_type_from_config(self, algorithm_config: AlgorithmConfig) -> Optional[AlgorithmType]:
         """从算法配置推断算法类型"""
         try:
-            if "聚类" in algorithm_config.name or "cluster" in algorithm_config.name.lower():
+            algorithm_name_lower = algorithm_config.name.lower()
+            
+            # 优先匹配更具体的算法类型，避免关键词冲突
+            # 异常检测算法统一映射到ANOMALY类型
+            if "异常" in algorithm_config.name or "anomaly" in algorithm_name_lower:
+                return AlgorithmType.ANOMALY
+            # 注释掉具体异常检测算法的特殊处理，统一使用ANOMALY
+            # elif "dbscan" in algorithm_name_lower or "密度聚类" in algorithm_config.name:
+            #     return AlgorithmType.DBSCAN
+            # elif "iforest" in algorithm_name_lower or "孤立森林" in algorithm_config.name or "isolation forest" in algorithm_name_lower:
+            #     return AlgorithmType.IFOREST
+            elif "聚类" in algorithm_config.name or "cluster" in algorithm_name_lower:
                 return AlgorithmType.CLUSTER
-            elif "分类" in algorithm_config.name or "classif" in algorithm_config.name.lower():
+            elif "分类" in algorithm_config.name or "classif" in algorithm_name_lower:
                 return AlgorithmType.CLASSIFY
-            elif "预测" in algorithm_config.name or "forecast" in algorithm_config.name.lower():
-                return AlgorithmType.FORECAST
+            elif "预测" in algorithm_config.name or "forecast" in algorithm_name_lower or "predict" in algorithm_name_lower:
+                return AlgorithmType.PREDICT
+            elif "关联" in algorithm_config.name or "associate" in algorithm_name_lower:
+                return AlgorithmType.ASSOCIATE
+            elif "相似" in algorithm_config.name or "similarity" in algorithm_name_lower:
+                return AlgorithmType.SIMILARITY
+            elif "趋势" in algorithm_config.name or "trend" in algorithm_name_lower:
+                return AlgorithmType.TREND
             else:
                 return None
-        except:
+        except Exception as e:
+            logger.warning(f"推断算法类型失败: {str(e)}")
             return None
     
     async def _validate_with_generic_validator(

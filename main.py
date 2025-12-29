@@ -106,10 +106,6 @@ async def lifespan(app):
         )
         logger.info("初始化算法执行器...")
         algorithm_executor = AlgorithmExecutor(
-            algorithm_apis={
-                'clustering': settings.clustering_api_url,
-                'classification': settings.classification_api_url
-            },
             task_manager=task_manager
         )
         logger.info("所有组件初始化完成")
@@ -139,7 +135,16 @@ async def lifespan(app):
         registration_success = await service_registry.initialize()
         if registration_success:
             api_app.set_service_registry(service_registry)
-            logger.info("服务注册管理器初始化成功")
+            
+            # 初始化服务发现客户端
+            from infrastructure.service_discovery import get_service_discovery_client, set_service_discovery_client
+            from infrastructure.service_discovery import ServiceDiscoveryClient
+            
+            # 创建服务发现客户端并注入Nacos注册实例
+            discovery_client = ServiceDiscoveryClient(service_registry.nacos_registration)
+            set_service_discovery_client(discovery_client)
+            
+            logger.info("服务注册管理器和服务发现客户端初始化成功")
         else:
             logger.warning("服务注册管理器初始化失败，服务将继续运行但无法被发现")
         

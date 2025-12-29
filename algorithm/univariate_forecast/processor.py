@@ -167,34 +167,36 @@ class UnivariateForecastProcessor(BaseAlgorithmProcessor):
         self,
         request: AlgorithmExecutionRequest
     ) -> Dict[str, Any]:
-        """执行单变量预测（调用forecast_core）"""
+        """
+        执行单变量预测（调用远程 forecast_service）
+        
+        Args:
+            request: 算法执行请求
+            
+        Returns:
+            单变量预测结果字典
+        """
         try:
-            from algorithm.forecast_core.auto_univariate_forecast.core.predictor import AutoUnivariatePredictor
+            from algorithm.executor.algorithm_executor import AlgorithmExecutor
             
-            config = request.config
-            data_rows = request.data_rows
+            logger.info("执行单变量预测（远程服务）")
             
-            # 准备预测请求数据
-            forecast_request = {
-                'task_type': 'forecast',
-                'data_type': 'univariate',
-                'data': data_rows[0]['data'],
-                'config': {
-                    'forecast_horizon': config.get('forecast_horizon', 24),
-                    'include_confidence': config.get('include_confidence', True)
-                }
-            }
-            
-            # 初始化预测器并执行预测
-            predictor = AutoUnivariatePredictor()
-            result = predictor.forecast(forecast_request)
-            
-            if result.get('success'):
-                logger.info(f"单变量预测执行成功，使用模型: {result.get('model_used')}")
-            else:
-                logger.warning(f"单变量预测执行失败: {result.get('message')}")
-            
-            return result
+            # 使用 AlgorithmExecutor 调用远程 forecast_service
+            executor = AlgorithmExecutor()
+            try:
+                response = await executor.execute_univariate_forecast(request)
+                
+                if response.status == "success":
+                    logger.info(f"单变量预测执行成功，使用模型: {response.result.get('model_used')}")
+                    return response.result
+                else:
+                    logger.warning(f"单变量预测执行失败: {response.message}")
+                    return {
+                        "success": False,
+                        "message": response.message
+                    }
+            finally:
+                await executor.close()
             
         except Exception as e:
             logger.error(f"单变量预测执行失败: {str(e)}")

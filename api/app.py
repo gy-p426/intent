@@ -592,6 +592,109 @@ class IntentRecognitionAPI:
                     "timestamp": datetime.utcnow().isoformat() + "Z"
                 }
         
+        @self.app.get(
+            "/admin/service-discovery/status",
+            summary="服务发现状态",
+            description="获取服务发现客户端的状态和配置信息"
+        )
+        async def service_discovery_status():
+            """
+            服务发现状态接口
+            
+            返回服务发现客户端的配置和统计信息
+            """
+            try:
+                from infrastructure.service_discovery import get_service_discovery_client
+                
+                discovery_client = get_service_discovery_client()
+                stats = discovery_client.get_service_stats()
+                
+                return {
+                    "code": 200,
+                    "message": "success",
+                    "data": {
+                        "service_discovery": stats,
+                        "timestamp": datetime.utcnow().isoformat() + "Z"
+                    }
+                }
+                
+            except Exception as e:
+                logger.error(f"获取服务发现状态失败: {str(e)}", exc_info=True)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to get service discovery status: {str(e)}"
+                )
+        
+        @self.app.get(
+            "/admin/service-discovery/services",
+            summary="服务发现 - 所有服务状态",
+            description="获取所有配置服务的发现状态和健康信息"
+        )
+        async def service_discovery_all_services():
+            """
+            所有服务发现状态接口
+            
+            返回所有配置服务的发现状态
+            """
+            try:
+                from infrastructure.service_discovery import get_service_discovery_client
+                
+                discovery_client = get_service_discovery_client()
+                services_status = await discovery_client.validate_all_services()
+                
+                return {
+                    "code": 200,
+                    "message": "success",
+                    "data": {
+                        "services": services_status,
+                        "summary": {
+                            "total_services": len(services_status),
+                            "healthy_services": len([s for s in services_status.values() if s.get("status") == "healthy"]),
+                            "unhealthy_services": len([s for s in services_status.values() if s.get("status") in ["unhealthy", "error"]])
+                        },
+                        "timestamp": datetime.utcnow().isoformat() + "Z"
+                    }
+                }
+                
+            except Exception as e:
+                logger.error(f"获取所有服务发现状态失败: {str(e)}", exc_info=True)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to get all services status: {str(e)}"
+                )
+        
+        @self.app.post(
+            "/admin/service-discovery/clear-cache",
+            summary="清除服务发现缓存",
+            description="清除服务发现客户端的实例缓存"
+        )
+        async def clear_service_discovery_cache(service_name: Optional[str] = None):
+            """
+            清除服务发现缓存接口
+            
+            清除指定服务或所有服务的实例缓存
+            """
+            try:
+                from infrastructure.service_discovery import get_service_discovery_client
+                
+                discovery_client = get_service_discovery_client()
+                discovery_client.clear_cache(service_name)
+                
+                message = f"已清除服务缓存: {service_name}" if service_name else "已清除所有服务缓存"
+                
+                return {
+                    "code": 200,
+                    "message": message,
+                    "timestamp": datetime.utcnow().isoformat() + "Z"
+                }
+                
+            except Exception as e:
+                logger.error(f"清除服务发现缓存失败: {str(e)}", exc_info=True)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to clear service discovery cache: {str(e)}"
+                )
+        
         @self.app.post(
             "/admin/registry/update-metadata",
             summary="强制更新服务元数据",
