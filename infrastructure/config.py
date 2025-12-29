@@ -357,6 +357,50 @@ class Settings(BaseSettings):
         ge=100
     )
     
+    # 大模型结果分析配置
+    enable_llm_result_analysis: bool = Field(
+        default=True,
+        description="是否启用大模型结果分析"
+    )
+    llm_analysis_model: str = Field(
+        default="deepseek-v3-2-251201",
+        description="用于结果分析的大模型"
+    )
+    llm_analysis_timeout: int = Field(
+        default=30,
+        description="大模型分析超时时间（秒）",
+        ge=5
+    )
+    llm_analysis_max_retries: int = Field(
+        default=2,
+        description="大模型分析最大重试次数",
+        ge=0
+    )
+    llm_analysis_fallback_enabled: bool = Field(
+        default=True,
+        description="是否启用分析失败时的降级处理"
+    )
+    
+    # 算法类型识别配置
+    enable_pure_llm_algorithm_detection: bool = Field(
+        default=True,
+        description="是否启用纯大模型算法类型识别（true=纯LLM，false=RAG+关键词）"
+    )
+    algorithm_detection_model: str = Field(
+        default="deepseek-v3-2-251201",
+        description="用于算法类型识别的大模型"
+    )
+    algorithm_detection_timeout: int = Field(
+        default=30,
+        description="算法识别超时时间（秒）",
+        ge=5
+    )
+    algorithm_detection_max_retries: int = Field(
+        default=2,
+        description="算法识别最大重试次数",
+        ge=0
+    )
+    
     # 数据库配置（用于获取表结构信息）
     mysql_host: str = Field(
         default="localhost",

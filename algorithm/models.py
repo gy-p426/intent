@@ -128,7 +128,15 @@ class AlgorithmExecutionResponse(BaseModel):
     task_id: Optional[str] = Field(None, description="异步任务ID")
     status: str = Field(..., description="执行状态")
     message: str = Field(..., description="状态消息")
-    readable_result: Optional[str] = Field(None, description="可读性格式化结果")
+    readable_result: Optional[Union[str, Dict[str, Any]]] = Field(None, description="可读性格式化结果，支持字符串或结构化格式")
+
+
+class LLMAnalysisResult(BaseModel):
+    """大模型分析结果模型"""
+    llm_analysis: str = Field(..., description="大模型生成的自然语言分析")
+    technical_details: Dict[str, Any] = Field(..., description="技术细节和原始结果")
+    analysis_source: str = Field(..., description="分析来源：llm_enhanced, fallback, technical_only")
+    analysis_timestamp: datetime = Field(default_factory=datetime.utcnow, description="分析时间戳")
 
 
 class TaskStatus(str, Enum):
