@@ -28,6 +28,7 @@ class FieldMapper:
         "end": "结束时间",
         "error": "错误信息",
         "error_details": "错误详情",
+        "error_type": "错误类型",
     }
     
     # 趋势分析专用映射
