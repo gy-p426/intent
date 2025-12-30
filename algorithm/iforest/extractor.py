@@ -48,10 +48,10 @@ IFOREST孤立森林算法异常分析要求：
 {schema_text}
         
 严格输出规则：
-1. id_column的值必须是数据库中实际存在的列名（如"销售日期"、"sale_date"等）
+1. id_column的值必须是数据库中实际存在的列注释（如"销售日期"、"sale_date"等）
 2. feature_columns的值必须是数据库中实际存在的数值型列名列表
 3. 不要创造不存在的列名
-4. 列名必须与数据库schema中的column_name完全一致
+4. required_columns中一定写明列注释，一定与normalized_query的使用的名称相同，如"required_columns": ["日期", "销售额"],"normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，共2列数据"
 5. 优先选择有注释说明的列，这样更容易理解业务含义
 6. normalized_query中一定写明返回的数据列注释（即id_column+feature_columns），并且标名返回几列数据，否则无法正确解析，如"获取销售日期、销售额，共2列数据"！！！
 
