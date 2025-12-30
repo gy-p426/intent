@@ -159,16 +159,13 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             # 2. 检查是否为异步任务 (返回了 task_id 或 status=pending)
             if result_data.get("status") == "pending" or "task_id" in result_data:
                 task_id = result_data.get("task_id")
-                logger.info(f"分类算法进入异步模式, Task ID: {task_id}")
-
-                # 在任务管理器中注册任务 (以便 Service 层后续轮询)
-                if self.task_manager and task_id:
-                    await self.task_manager.create_task(task_id, AlgorithmType.CLASSIFY)
+                logger.info(f"分类算法进入异步模式, 外部Task ID: {task_id}")
 
                 return AlgorithmExecutionResponse(
-                    task_id=task_id,
-                    status="processing",
-                    message=result_data.get("message", "数据量较大，正在后台训练模型...")
+                    result=result_data,  # 包含 {"task_id": "...", "status": "pending"}
+                    status="success",  # 响应本身是成功的（请求已发送）
+                    message=result_data.get("message", "数据量较大，使用TabNet算法，异步的训练任务已创建"),
+                    readable_result=None  # 让LLM解释这个异步状态
                 )
 
             # 3. 处理同步结果
@@ -178,7 +175,7 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                     result=result_data,
                     status="success",
                     message="分类预测执行成功",
-                    readable_result=None  # 👈 保持为None，触发大模型自动分析
+                    readable_result=None
                 )
 
             # 4. 处理错误

@@ -33,12 +33,6 @@ class ClassificationProcessor(BaseAlgorithmProcessor):
     ) -> AlgorithmExecutionRequest:
         """
         将SQL结果转换为分类算法输入格式
-
-        逻辑：
-        1. 提取参数映射中的列名配置。
-        2. 遍历SQL结果，进行数据清洗（数值转换）。
-        3. 构建训练集(data_sets)：仅包含有目标值的数据。
-        4. 构建预测集(data_rows)：包含所有数据（以便查看回测结果）。
         """
         try:
             logger.info(f"开始转换SQL结果为分类算法输入，数据行数: {len(sql_result)}")
@@ -74,27 +68,27 @@ class ClassificationProcessor(BaseAlgorithmProcessor):
                                 cleaned_row[col] = float(val)
                             # 已经是数字则保持
                         except (ValueError, TypeError):
-                            pass  # 保持原样（可能是类别特征）
+                            pass
 
-                # 添加到预测集（所有数据都做预测）
+                            # 添加到预测集（所有数据都做预测）
                 predict_data.append(cleaned_row)
 
                 # 检查是否存在目标值，若存在则加入训练集
                 target_val = cleaned_row.get(target_column)
+                # 注意：这里认为空字符串或None都不算有效标签
                 if target_val is not None and str(target_val).strip() != '':
                     train_data.append(cleaned_row)
 
             logger.info(
                 f"数据处理完成: 总数据{len(sql_result)}行 -> 训练集{len(train_data)}行, 预测集{len(predict_data)}行")
 
-            # 3. 构建算法配置
-            # 注意：接口文档要求 config 包含 id_column, feature_columns 等
+            # 3. 构建算法配置 (匹配服务端的 ClassificationConfig)
             config_payload = {
                 "id_column": id_column,
                 "target_column": target_column,
                 "feature_columns": feature_columns,
-                "categorical_columns": [],  # 暂时留空，由算法端自动推断或后续增强
-                "algorithm": algorithm  # xgboost, tabnet 或 None
+                "categorical_columns": [],  # 默认列表，算法端会处理
+                "algorithm": algorithm  # 传递用户指定的算法
             }
 
             # 4. 返回请求对象
@@ -126,7 +120,6 @@ class ClassificationProcessor(BaseAlgorithmProcessor):
                     return False
 
             # 验证训练数据
-            # 如果没有训练数据，且也没有预训练模型（当前场景假设都是实时训练），则无法执行
             if not train_data or len(train_data) < 2:
                 logger.error(f"训练数据不足: {len(train_data) if train_data else 0}行，至少需要2行带标签的数据进行训练")
                 return False

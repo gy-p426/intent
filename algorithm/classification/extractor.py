@@ -52,7 +52,7 @@ class ClassificationExtractor(BaseAlgorithmExtractor):
 严格输出规则：
 1. 所有列名必须完全匹配数据库中的实际列名（包括中文）。
 2. target_column 必须是分类目标（如状态、类别、等级）。
-3. normalized_query 必须包含返回 id_column, target_column 和 feature_columns 的描述。
+3. normalized_query中一定写明返回的数据列注释（即id_column+target_column+feature_columns），并且标名返回几列数据，否则无法正确解析，如"获取客户ID、流失状态、年龄、月使用量，共4列数据"！！！
 4. 如果用户未指定具体特征，请根据业务逻辑从可用列中智能选择合理的特征列。
 
 输出JSON示例：
@@ -63,7 +63,7 @@ class ClassificationExtractor(BaseAlgorithmExtractor):
     "feature_columns": ["age", "monthly_usage", "contract_type"],
     "algorithm": "xgboost"
   }},
-  "normalized_query": "查询所有客户的ID、流失状态、年龄、月使用量和合同类型数据"
+  "normalized_query": "获取客户数据的customer_id、churn_status、age、monthly_usage和contract_type，共5列数据"
 }}"""
 
         user_prompt = f"""用户问题: {question}
