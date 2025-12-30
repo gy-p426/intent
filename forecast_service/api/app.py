@@ -4,11 +4,17 @@ Forecast Microservice FastAPI Application
 """
 from datetime import datetime
 from typing import Dict, Any
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field
 import sys
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 添加父目录到路径以便导入config
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -47,6 +53,94 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
         openapi_url="/openapi.json"
     )
+    
+    # 422 验证错误详细输出
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        """处理请求验证错误，输出详细信息"""
+        errors = exc.errors()
+        error_details = []
+        for error in errors:
+            error_details.append({
+                "field": " -> ".join(str(loc) for loc in error["loc"]),
+                "message": error["msg"],
+                "type": error["type"],
+                "input": error.get("input")
+            })
+        
+        # 控制台输出详细错误
+        logger.error(f"请求验证失败 [{request.method}] {request.url}")
+        logger.error(f"客户端: {request.client.host if request.client else 'unknown'}")
+        for detail in error_details:
+            logger.error(f"  字段: {detail['field']}, 错误: {detail['message']}, 类型: {detail['type']}")
+        
+        # 尝试获取请求体
+        try:
+            body = await request.body()
+            body_str = body.decode('utf-8')[:500]  # 限制长度
+            logger.error(f"请求体: {body_str}")
+        except:
+            pass
+        
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "message": "请求参数验证失败",
+                "timestamp": datetime.utcnow().isoformat(),
+                "errors": error_details
+            }
+        )
+    
+    # HTTP 异常处理 (400, 401, 403, 404, 500 等)
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        """处理 HTTP 异常"""
+        logger.error(f"HTTP 错误 {exc.status_code} [{request.method}] {request.url}")
+        logger.error(f"客户端: {request.client.host if request.client else 'unknown'}")
+        logger.error(f"详情: {exc.detail}")
+        
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "success": False,
+                "message": str(exc.detail),
+                "status_code": exc.status_code,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+    
+    # 通用异常处理
+    @app.exception_handler(Exception)
+    async def general_exception_handler(request: Request, exc: Exception):
+        """处理所有未捕获的异常"""
+        logger.error(f"未处理异常 [{request.method}] {request.url}: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": f"服务器内部错误: {str(exc)}",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+    
+    # 请求日志中间件
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        """记录所有请求的详细信息"""
+        start_time = datetime.utcnow()
+        
+        # 记录请求信息
+        logger.info(f"收到请求 [{request.method}] {request.url}")
+        logger.info(f"客户端: {request.client.host if request.client else 'unknown'}")
+        
+        response = await call_next(request)
+        
+        # 记录响应信息
+        duration = (datetime.utcnow() - start_time).total_seconds() * 1000
+        logger.info(f"响应完成 [{request.method}] {request.url} - 状态: {response.status_code} - 耗时: {duration:.2f}ms")
+        
+        return response
     
     # 配置CORS中间件
     app.add_middleware(

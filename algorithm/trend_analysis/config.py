@@ -113,6 +113,12 @@ TREND_ANALYSIS_RESPONSE = {
                 "period_used": "integer - 使用的季节周期"
             }
         },
+        "readable_summary": {
+            "title": "string - 分析结果标题（如：📊 趋势分解分析结果）",
+            "key_findings": "array[string] - 关键发现列表，用通俗语言描述趋势和季节性强度",
+            "explanation": "string - 详细的通俗解释，说明分解结果的含义",
+            "recommendations": "array[string] - 基于分析结果的建议"
+        },
         "analysis_type": "string - 固定为 'decomposition'",
         "algorithm_used": "string - 使用的算法 (stl/classical)",
         "period_used": "integer - 使用的季节周期",
@@ -137,6 +143,12 @@ TREND_ANALYSIS_RESPONSE = {
             "method": "string - 固定为 'Mann-Kendall'",
             "sample_size": "integer",
             "interpretation": "string - 结果解释"
+        },
+        "readable_summary": {
+            "title": "string - 分析结果标题（如：🔍 趋势检测分析结果）",
+            "key_findings": "array[string] - 关键发现列表，用通俗语言描述趋势方向和可信度",
+            "explanation": "string - 详细的通俗解释，说明检测结果的含义",
+            "recommendations": "array[string] - 基于分析结果的建议"
         },
         "analysis_type": "string - 固定为 'detection'",
         "method_used": "string - 固定为 'mann_kendall'",
@@ -164,8 +176,49 @@ TREND_ANALYSIS_RESPONSE = {
             "sample_size": "integer",
             "interpretation": "string"
         },
+        "readable_summary": {
+            "title": "string - 分析结果标题（如：🔍 趋势检测分析结果）",
+            "key_findings": "array[string] - 关键发现列表，用通俗语言描述趋势方向、速度和拟合程度",
+            "explanation": "string - 详细的通俗解释，说明检测结果的含义",
+            "recommendations": "array[string] - 基于分析结果的建议"
+        },
         "analysis_type": "string - 固定为 'detection'",
         "method_used": "string - 固定为 'linear_regression'",
         "data_points": "integer"
+    },
+    
+    # readable_summary 字段说明
+    "readable_summary_description": {
+        "purpose": "为非专业用户提供通俗易懂的分析结果解读",
+        "fields": {
+            "title": "带有emoji的分析结果标题，直观展示分析类型",
+            "key_findings": "关键发现列表，每条发现都用通俗语言描述，避免专业术语",
+            "explanation": "详细解释分析结果的含义，帮助用户理解数据背后的故事",
+            "recommendations": "基于分析结果给出的实用建议，帮助用户采取行动"
+        },
+        "example_decomposition": {
+            "title": "📊 趋势分解分析结果",
+            "key_findings": [
+                "📈 数据存在较为明显的趋势（强度：65%），整体有一定的变化方向",
+                "🔄 数据存在非常明显的周期性规律（强度：78%），每24个时间单位会重复类似的模式"
+            ],
+            "explanation": "我们将您的数据分解成了三个部分：1️⃣ 趋势成分：反映数据的长期走向...",
+            "recommendations": [
+                "💡 趋势明显，建议关注长期变化方向，可能需要调整策略以适应趋势",
+                "💡 周期性明显（周期约24个单位），建议在业务规划中考虑这种周期性波动"
+            ]
+        },
+        "example_detection": {
+            "title": "🔍 趋势检测分析结果",
+            "key_findings": [
+                "📈 检测到数据呈现**上升趋势**，我们比较确定这个结论是可靠的（置信度：95%）",
+                "📊 增长速度：平稳（每个时间单位平均变化 0.5234）"
+            ],
+            "explanation": "分析结果表明，您的数据整体呈现**上升趋势**...",
+            "recommendations": [
+                "💡 数据呈上升趋势，建议关注增长的可持续性，并分析增长原因",
+                "💡 可以考虑利用这一趋势进行预测和规划"
+            ]
+        }
     }
 }

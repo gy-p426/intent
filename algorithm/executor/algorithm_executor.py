@@ -470,26 +470,23 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             logger.info("趋势分析算法执行成功")
             logger.info(f"算法返回状态: {result_data.get('status', 'unknown')}")
             
-            # 临时：将完整的返回结果显示在readable_result中，便于调试
-            import json
-            readable_result = f"趋势分析完整返回结果：\n{json.dumps(result_data, indent=2, ensure_ascii=False)}"
-            
+            # 🆕 新版本：设置 readable_result=None，系统会自动调用大模型分析
             if result_data.get('status') == 'success':
                 logger.info("趋势分析结果获取成功")
                 return AlgorithmExecutionResponse(
                     result=result_data,
                     status="success",
                     message="趋势分析执行成功",
-                    readable_result=readable_result
+                    readable_result=None  # 🆕 自动调用大模型分析
                 )
             else:
                 error_msg = result_data.get('error', result_data.get('message', '未知错误'))
                 logger.error(f"趋势分析执行失败: {error_msg}")
                 return AlgorithmExecutionResponse(
-                    result=result_data,  # 即使失败也返回完整结果用于调试
+                    result=result_data,
                     status="error",
                     message=f"趋势分析执行失败: {error_msg}",
-                    readable_result=readable_result
+                    readable_result=None  # 🆕 错误情况下也会自动生成分析
                 )
                 
         except Exception as e:
@@ -498,10 +495,8 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                 result={},
                 status="error",
                 message=f"趋势分析执行失败: {str(e)}",
-                readable_result=f"趋势分析异常：{str(e)}"
+                readable_result=None  # 🆕 异常情况下也会自动处理
             )
-            if session and not session.closed:
-                await session.close()
     
     def _prepare_trend_request(
         self,
@@ -595,16 +590,13 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             logger.info("单变量预测算法执行成功")
             logger.info(f"算法返回状态: {result_data.get('success', 'unknown')}")
             
-            # 将完整的返回结果显示在readable_result中，便于调试
-            import json
-            readable_result = f"单变量预测完整返回结果：\n{json.dumps(result_data, indent=2, ensure_ascii=False)}"
-            
+            # 🆕 新版本：设置 readable_result=None，系统会自动调用大模型分析
             if result_data.get('success'):
                 return AlgorithmExecutionResponse(
                     result=result_data,
                     status="success",
                     message="单变量预测执行成功",
-                    readable_result=readable_result
+                    readable_result=None  # 🆕 自动调用大模型分析
                 )
             else:
                 error_msg = result_data.get('message', '未知错误')
@@ -613,7 +605,7 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                     result=result_data,
                     status="error",
                     message=f"单变量预测执行失败: {error_msg}",
-                    readable_result=readable_result
+                    readable_result=None  # 🆕 错误情况下也会自动生成分析
                 )
                 
         except Exception as e:
@@ -622,7 +614,7 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                 result={},
                 status="error",
                 message=f"单变量预测执行异常: {str(e)}",
-                readable_result=f"单变量预测异常：{str(e)}"
+                readable_result=None  # 🆕 异常情况下也会自动处理
             )
             
     async def execute_multivariate_forecast(
@@ -652,16 +644,13 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             logger.info("多变量预测算法执行成功")
             logger.info(f"算法返回状态: {result_data.get('success', 'unknown')}")
             
-            # 将完整的返回结果显示在readable_result中，便于调试
-            import json
-            readable_result = f"多变量预测完整返回结果：\n{json.dumps(result_data, indent=2, ensure_ascii=False)}"
-            
+            # 🆕 新版本：设置 readable_result=None，系统会自动调用大模型分析
             if result_data.get('success'):
                 return AlgorithmExecutionResponse(
                     result=result_data,
                     status="success",
                     message="多变量预测执行成功",
-                    readable_result=readable_result
+                    readable_result=None  # 🆕 自动调用大模型分析
                 )
             else:
                 error_msg = result_data.get('message', '未知错误')
@@ -670,7 +659,7 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                     result=result_data,
                     status="error",
                     message=f"多变量预测执行失败: {error_msg}",
-                    readable_result=readable_result
+                    readable_result=None  # 🆕 错误情况下也会自动生成分析
                 )
                 
         except Exception as e:
@@ -679,7 +668,7 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                 result={},
                 status="error",
                 message=f"多变量预测执行异常: {str(e)}",
-                readable_result=f"多变量预测异常：{str(e)}"
+                readable_result=None  # 🆕 异常情况下也会自动处理
             )
     
     async def forecast_service_health_check(self) -> bool:

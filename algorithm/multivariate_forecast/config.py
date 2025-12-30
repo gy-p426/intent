@@ -85,7 +85,13 @@ MULTIVARIATE_FORECAST_RESPONSE = {
         "results": {
             "timestamps": ["string - 预测时间点数组"],
             "forecast": ["float - 预测值数组"],
-            "horizon": "integer - 预测步数"
+            "horizon": "integer - 预测步数",
+            "readable_summary": {
+                "title": "string - 分析结果标题（如：🎯 多变量预测分析结果）",
+                "key_findings": "array[string] - 关键发现列表，用通俗语言描述预测结果和模型准确度",
+                "explanation": "string - 详细的通俗解释，说明预测结果的含义",
+                "recommendations": "array[string] - 基于分析结果的建议"
+            }
         },
         "model_used": "string - lightgbm/xgboost/random_forest/linear_regression",
         "model_id": "string - 模型唯一标识符",
@@ -128,5 +134,31 @@ MULTIVARIATE_FORECAST_RESPONSE = {
     "error_response": {
         "success": "boolean - 固定为 false",
         "message": "string - 错误描述信息"
+    },
+    
+    # readable_summary 字段说明
+    "readable_summary_description": {
+        "purpose": "为非专业用户提供通俗易懂的多变量预测结果解读",
+        "fields": {
+            "title": "带有emoji的分析结果标题，直观展示分析类型",
+            "key_findings": "关键发现列表，包括模型选择、准确度、预测趋势等信息",
+            "explanation": "详细解释预测结果的含义，包括R²值的通俗解读",
+            "recommendations": "基于分析结果给出的实用建议"
+        },
+        "example": {
+            "title": "🎯 多变量预测分析结果",
+            "key_findings": [
+                "🤖 使用 **LightGBM（高效梯度提升算法）** 进行预测",
+                "📊 综合了 **5** 个特征变量进行分析",
+                "📈 模型准确度：**较高** ⭐⭐（R² = 78%）",
+                "📐 平均预测误差：约 12.35（RMSE）",
+                "📈 预测期内（14个时间点）整体呈 **上升趋势**"
+            ],
+            "explanation": "我们使用 **LightGBM** 对您的数据进行了多变量预测分析...",
+            "recommendations": [
+                "💡 模型准确度较高，预测结果可作为决策参考",
+                "💡 预测值会随时间推移而累积误差，建议定期更新模型"
+            ]
+        }
     }
 }
