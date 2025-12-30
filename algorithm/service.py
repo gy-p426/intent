@@ -30,8 +30,6 @@ from algorithm.error_handler import (
 from llm.algorithm_result_analyzer import AlgorithmResultAnalyzer
 from llm.llm_client import LLMClient
 from infrastructure.config import get_settings
-# 🆕 导入结果分析器
-from algorithm.result_analyzer import get_result_analyzer
 
 
 logger = logging.getLogger(__name__)
@@ -118,9 +116,6 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         if self.algorithm_executor is None:
             from algorithm.executor.algorithm_executor import AlgorithmExecutor
             self.algorithm_executor = AlgorithmExecutor()
-        
-        # 🆕 初始化结果分析器（大模型分析功能）
-        self.result_analyzer = get_result_analyzer()
         
         # 配置重试策略
         self.retry_configs = {
@@ -501,14 +496,6 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                     status="completed",
                                     data=algorithm_execution_data,
                                     timestamp=datetime.utcnow()
-                                )
-                                
-                                # 🆕 使用大模型分析功能格式化结果
-                                readable_result = await self._format_readable_result_async(
-                                    algorithm_type, 
-                                    algorithm_result, 
-                                    nl2sql_response.execution_result,
-                                    parameters.normalized_query  # 传递用户问题用于大模型分析
                                 )
                                 
                                 # 构建增强的最终完成响应
@@ -1215,49 +1202,6 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             logger.error(f"生成降级分析失败: {str(e)}")
             return f"已完成对您问题「{user_question}」的算法分析，但结果处理过程中遇到问题。请查看技术细节了解具体的分析结果。"
 
-    async def _format_readable_result_async(
-        self, 
-        algorithm_type: AlgorithmType, 
-        algorithm_result: Dict[str, Any], 
-        original_data: List[Dict[str, Any]],
-        user_question: str = ""
-    ) -> Dict[str, Any]:
-        """
-        🆕 异步格式化算法结果（支持大模型分析）
-        
-        Args:
-            algorithm_type: 算法类型
-            algorithm_result: 算法执行结果
-            original_data: 原始数据
-            user_question: 用户原始问题（用于大模型分析）
-            
-        Returns:
-            Dict[str, Any]: 格式化后的可读结果，包含 llm_analysis, technical_details, analysis_source
-        """
-        try:
-            # 检查是否启用大模型分析
-            if self.result_analyzer and self.result_analyzer.enabled:
-                logger.info(f"使用大模型分析功能处理 {algorithm_type.value} 算法结果")
-                
-                # 调用大模型分析
-                analyzed_result = await self.result_analyzer.analyze_result(
-                    user_question=user_question,
-                    algorithm_type=algorithm_type.value,
-                    algorithm_result=algorithm_result,
-                    original_data_count=len(original_data)
-                )
-                
-                logger.info(f"大模型分析完成，来源: {analyzed_result.get('analysis_source', 'unknown')}")
-                return analyzed_result
-            else:
-                # 降级到传统格式化方法
-                logger.info("大模型分析未启用，使用传统格式化方法")
-                return self._format_readable_result(algorithm_type, algorithm_result, original_data)
-                
-        except Exception as e:
-            logger.warning(f"大模型分析失败，降级到传统格式化: {str(e)}")
-            return self._format_readable_result(algorithm_type, algorithm_result, original_data)
-    
     def _format_readable_result(self, algorithm_type: AlgorithmType, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         格式化算法结果为可读格式

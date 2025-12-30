@@ -2,6 +2,7 @@
 """
 单变量预测API路由
 实现 /api/v1/forecast/univariate 端点
+返回数据使用中文字段名
 """
 from datetime import datetime
 from typing import Dict, Any, List, Optional
@@ -66,27 +67,28 @@ class UnivariateForecastRequest(BaseModel):
 
 
 class UnivariateForecastResponse(BaseModel):
-    """单变量预测响应"""
-    success: bool = Field(..., description="请求是否成功")
-    message: Optional[str] = Field(default=None, description="响应消息")
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="响应时间戳")
-    model_used: Optional[str] = Field(default=None, description="使用的模型")
-    predictions: Optional[List[Dict[str, Any]]] = Field(default=None, description="预测结果")
-    metrics: Optional[Dict[str, float]] = Field(default=None, description="模型指标")
-    processing_time: Optional[float] = Field(default=None, description="处理时间(秒)")
-    results: Optional[Dict[str, Any]] = Field(default=None, description="完整结果")
-    data_analysis: Optional[Dict[str, Any]] = Field(default=None, description="数据分析结果")
+    """单变量预测响应（中文字段名）"""
+    是否成功: bool = Field(..., alias="是否成功", description="请求是否成功")
+    消息: Optional[str] = Field(default=None, alias="消息", description="响应消息")
+    时间戳: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), alias="时间戳", description="响应时间戳")
+    使用模型: Optional[str] = Field(default=None, alias="使用模型", description="使用的模型")
+    预测列表: Optional[List[Dict[str, Any]]] = Field(default=None, alias="预测列表", description="预测结果列表")
+    评估指标: Optional[Dict[str, float]] = Field(default=None, alias="评估指标", description="模型指标")
+    处理时间: Optional[float] = Field(default=None, alias="处理时间", description="处理时间(秒)")
+    预测结果: Optional[Dict[str, Any]] = Field(default=None, alias="预测结果", description="完整结果")
+    数据分析: Optional[Dict[str, Any]] = Field(default=None, alias="数据分析", description="数据分析结果")
+    
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # ============ API端点 ============
 
 @router.post(
     "/univariate",
-    response_model=UnivariateForecastResponse,
     summary="单变量时序预测",
-    description="对单变量时间序列数据进行自动预测，自动选择最佳模型"
+    description="对单变量时间序列数据进行自动预测，自动选择最佳模型，返回中文字段名"
 )
-async def univariate_forecast(request: UnivariateForecastRequest) -> UnivariateForecastResponse:
+async def univariate_forecast(request: UnivariateForecastRequest) -> Dict[str, Any]:
     """
     单变量预测端点
     
@@ -94,6 +96,8 @@ async def univariate_forecast(request: UnivariateForecastRequest) -> UnivariateF
     - **config**: 配置参数
         - forecast_horizon: 预测步数（默认24）
         - include_confidence: 是否包含置信区间
+    
+    返回数据使用中文字段名
     """
     try:
         logger.info("收到单变量预测请求")
@@ -105,53 +109,54 @@ async def univariate_forecast(request: UnivariateForecastRequest) -> UnivariateF
             'config': request.config or {"forecast_horizon": 24, "include_confidence": True}
         }
         
-        # 执行预测
+        # 执行预测（返回中文字段名）
         result = predictor.forecast(request_data)
         
         processing_time = time.time() - start_time
         
-        if result.get('success'):
-            # 格式化预测结果
+        # 结果已经是中文字段名，直接使用
+        if result.get('是否成功'):
+            # 格式化预测结果列表
             predictions = None
-            if 'results' in result and result['results']:
-                forecast_data = result['results']
-                if 'forecast' in forecast_data:
+            results_data = result.get('预测结果', {})
+            if results_data:
+                forecast_values = results_data.get('预测值', [])
+                timestamps = results_data.get('时间点', [])
+                lower_bounds = results_data.get('置信下限', [])
+                upper_bounds = results_data.get('置信上限', [])
+                
+                if forecast_values:
                     predictions = []
-                    forecast_values = forecast_data.get('forecast', [])
-                    timestamps = forecast_data.get('timestamps', [])
-                    lower_bounds = forecast_data.get('lower_bound', [])
-                    upper_bounds = forecast_data.get('upper_bound', [])
-                    
                     for i, value in enumerate(forecast_values):
                         pred_item = {
-                            'timestamp': timestamps[i] if i < len(timestamps) else None,
-                            'value': value
+                            '时间戳': timestamps[i] if i < len(timestamps) else None,
+                            '数值': value
                         }
                         if i < len(lower_bounds):
-                            pred_item['lower_bound'] = lower_bounds[i]
+                            pred_item['置信下限'] = lower_bounds[i]
                         if i < len(upper_bounds):
-                            pred_item['upper_bound'] = upper_bounds[i]
+                            pred_item['置信上限'] = upper_bounds[i]
                         predictions.append(pred_item)
             
-            return UnivariateForecastResponse(
-                success=True,
-                message="预测完成",
-                timestamp=datetime.utcnow().isoformat(),
-                model_used=result.get('model_used'),
-                predictions=predictions,
-                metrics=result.get('results', {}).get('metrics'),
-                processing_time=round(processing_time, 3),
-                results=result.get('results'),
-                data_analysis=result.get('data_analysis')
-            )
+            return {
+                "是否成功": True,
+                "消息": "预测完成",
+                "时间戳": datetime.utcnow().isoformat(),
+                "使用模型": result.get('使用模型'),
+                "预测列表": predictions,
+                "评估指标": results_data.get('评估指标'),
+                "处理时间": round(processing_time, 3),
+                "预测结果": results_data,
+                "数据分析": result.get('数据分析')
+            }
         else:
-            return UnivariateForecastResponse(
-                success=False,
-                message=result.get('message', '预测失败'),
-                timestamp=datetime.utcnow().isoformat(),
-                model_used=result.get('model_used'),
-                processing_time=round(processing_time, 3)
-            )
+            return {
+                "是否成功": False,
+                "消息": result.get('消息', '预测失败'),
+                "时间戳": datetime.utcnow().isoformat(),
+                "使用模型": result.get('使用模型'),
+                "处理时间": round(processing_time, 3)
+            }
             
     except ValueError as e:
         logger.warning(f"单变量预测参数错误: {e}")
