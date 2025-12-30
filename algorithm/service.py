@@ -1240,71 +1240,95 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 "summary": "结果格式化失败",
                 "raw_result": algorithm_result
             }
-    
-    def _format_clustering_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+
+    def _format_clustering_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[
+        str, Any]:
         """
         格式化聚类算法结果
-        
+        适配动态ID列：假设 results 中每个对象的键顺序为 [cluster_id, <dynamic_id_key>, features...]
+
         Args:
             algorithm_result: 聚类算法结果
             original_data: 原始数据
-            
+
         Returns:
             Dict[str, Any]: 格式化后的聚类结果
         """
         k_used = algorithm_result.get("k_used", 0)
         results = algorithm_result.get("results", [])
-        
-        # 按聚类ID分组
+
+        # 1. 动态侦测 ID 列的键名
+        id_key = None
+        if results and len(results) > 0:
+            # 获取第一条数据的键列表
+            first_item_keys = list(results[0].keys())
+
+            # 严格遵循约定：第1个是 cluster_id，第2个是 标识字段
+            if len(first_item_keys) >= 2 and first_item_keys[0] == "cluster_id":
+                id_key = first_item_keys[1]
+                logger.info(f"聚类结果格式化：检测到动态ID列名为 '{id_key}'")
+            else:
+                logger.warning(f"聚类结果格式异常：未满足[cluster_id, id, ...]的顺序约定，键列表: {first_item_keys}")
+
+        # 2. 按聚类ID分组
         cluster_groups = {}
         for item in results:
             cluster_id = item.get("cluster_id")
-            uid = item.get("uid")
-            
+
+            # 使用侦测到的 id_key 提取标识，如果侦测失败则尝试降级逻辑（取第2个值）
+            uid = None
+            if id_key:
+                uid = item.get(id_key)
+            elif len(item) >= 2:
+                # 降级策略：如果键顺序不对但数据存在，强行取 values 的第2个值
+                uid = list(item.values())[1]
+
             if cluster_id is not None and uid is not None:
                 if cluster_id not in cluster_groups:
                     cluster_groups[cluster_id] = []
-                cluster_groups[cluster_id].append(uid)
-        
-        # 构建简洁的聚类结果描述
+                # 确保ID为字符串格式
+                cluster_groups[cluster_id].append(str(uid))
+
+        # 3. 构建简洁的聚类结果描述
         cluster_descriptions = []
         cluster_summary = {}
-        
+
         for cluster_id in sorted(cluster_groups.keys()):
             member_ids = cluster_groups[cluster_id]
             cluster_name = f"第{cluster_id + 1}类" if cluster_id >= 0 else f"聚类{cluster_id}"
-            
+
             # 创建描述
             if len(member_ids) <= 10:
-                # 如果成员不多，显示所有ID
                 ids_str = "、".join(member_ids)
                 description = f"{cluster_name}包含{len(member_ids)}个成员：{ids_str}"
             else:
-                # 如果成员很多，只显示前几个
                 ids_str = "、".join(member_ids[:8])
                 description = f"{cluster_name}包含{len(member_ids)}个成员：{ids_str}等"
-            
+
             cluster_descriptions.append(description)
             cluster_summary[cluster_name] = {
                 "count": len(member_ids),
                 "members": member_ids
             }
-        
-        # 生成总体描述
+
+        # 4. 生成总体描述
         total_description = f"聚类分析完成，将{len(results)}个数据点分为{k_used}个聚类。"
+        if id_key:
+            total_description += f"（基于标识列：{id_key}）"
         full_description = total_description + " " + "；".join(cluster_descriptions) + "。"
-        
+
         return {
             "summary": full_description,
             "k_value": k_used,
+            "id_column_detected": id_key,  # 记录检测到的ID列名，供调试或前端使用
             "total_data_points": len(results),
             "cluster_details": cluster_summary,
             "simple_view": {
-                f"第{i+1}类": cluster_groups.get(i, []) 
+                f"第{i + 1}类": cluster_groups.get(i, [])
                 for i in sorted(cluster_groups.keys())
             }
         }
-    
+
     def _format_classification_result(self, algorithm_result: Dict[str, Any], original_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         格式化分类算法结果
