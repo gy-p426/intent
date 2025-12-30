@@ -66,6 +66,7 @@ class TrendAnalysisExtractor(BaseAlgorithmExtractor):
 4. 列名必须与SQL查询结果中的字段名完全一致
 5. 优先选择有注释说明的列
 6. normalized_query中一定写明返回的数据列注释（即timestamp_column+value_column），并且标名返回几列数据，否则无法正确解析，如"获取日期、出车次数，共2列数据"！！！
+7. required_columns中一定写明列注释，一定与normalized_query的使用的名称相同，如"required_columns": ["日期", "销售额"],"normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，共2列数据"
 
 输出JSON格式（严格遵守）：
 {{

@@ -55,9 +55,9 @@ class AssociationExtractor(BaseAlgorithmExtractor):
 {schema_text}
 
 严格输出规则：
-1. column1 和 column2 必须是数据库中实际存在的列名
-2. 列名必须与数据库schema中的column_name完全一致
-3. 不要创造不存在的列名
+1. column1 和 column2 必须是数据库中实际存在的列注释
+2. required_columns中一定写明列注释，一定与normalized_query的使用的名称相同，如"required_columns": ["日期", "销售额"],"normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，共2列数据"
+3. 不要创造不存在的列注释
 4. 优先选择有注释说明的列
 6. normalized_query中一定写明返回的数据列注释（即id_column+feature_columns），并且标名返回几列数据，否则无法正确解析，如"获取销售日期、销售额，共2列数据"，！！！
 
@@ -68,8 +68,8 @@ class AssociationExtractor(BaseAlgorithmExtractor):
     "column2": "数据库中第二列的实际列名",
     "significance_level": 0.05
   }},
-  "required_columns": ["第一列实际列名", "第二列实际列名"],
-  "normalized_query": "查询[列1]与[列2]，共2列数据"
+  "required_columns": ["日期", "销售额"],
+  "normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，共2列数据"
 }}"""
         
         user_prompt = f"""用户问题: {question}
@@ -78,9 +78,8 @@ class AssociationExtractor(BaseAlgorithmExtractor):
 
 关键要求：
 1. 识别用户想要分析关联的两个变量
-2. 从数据库schema中找到对应的实际列名
-3. 确保列名完全匹配数据库中的column_name
-4. 如果用户指定了显著性水平(如α=0.01),则设置significance_level
+2. 从数据库schema中找到对应的实际列注释
+3. 如果用户指定了显著性水平(如α=0.01),则设置significance_level
 
 输出JSON格式的参数提取结果。"""
         

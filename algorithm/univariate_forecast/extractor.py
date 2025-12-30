@@ -60,10 +60,10 @@ class UnivariateForecastExtractor(BaseAlgorithmExtractor):
 - 如果用户没有明确指定，默认使用24
 
 严格输出规则：
-1. timestamp_column的值必须是数据库中实际存在的时间类型列名
-2. value_column的值必须是数据库中实际存在的数值型列名
-3. 不要创造不存在的列名
-4. 列名必须与数据库schema中的column_name完全一致
+1. timestamp_column的值必须是数据库中实际存在的时间类型列注释
+2. value_column的值必须是数据库中实际存在的数值型列注释
+3. 不要创造不存在的列注释
+4. required_columns中一定写明列注释，一定与normalized_query的使用的名称相同，如"required_columns": ["日期", "销售额"],"normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，共2列数据"
 5. 优先选择有注释说明的列
 6. normalized_query中一定写明返回的数据列注释（即timestamp_column+value_column），并且标名返回几列数据，否则无法正确解析，如"获取日期、销售额，共2列数据"！！！
 
@@ -78,7 +78,7 @@ class UnivariateForecastExtractor(BaseAlgorithmExtractor):
     "confidence_level": 0.95
   }},
   "required_columns": ["日期", "销售额"],
-  "normalized_query": "获取历史销售数据的日期、销售额，共2列数据"
+  "normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，共2列数据"
 }}"""
         
         user_prompt = f"""用户问题: {question}

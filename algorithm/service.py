@@ -512,7 +512,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                 final_data = {
                                     "algorithm_type": algorithm_type.value,
                                     "algorithm_type_chinese": algorithm_type_chinese,
-                                    "algorithm_result": algorithm_result,
+                                    # "algorithm_result": algorithm_result,
                                     "sql_statement": nl2sql_response.sql_statement,
                                     "normalized_query": parameters.normalized_query,
                                     "execution_summary": self._generate_algorithm_summary(algorithm_type, algorithm_result),

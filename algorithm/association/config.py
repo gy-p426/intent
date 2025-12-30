@@ -107,115 +107,108 @@ ASSOCIATION_CONFIG = {
     }
 }
 
-# 🔥 修改：响应参数定义（analyzer.py返回的格式,不包含status）
+# 🔥 修改：响应参数定义（analyzer.py返回的格式，中文字段，嵌套结构）
 ASSOCIATION_RESULT = {
-    "column1_name": {
+    "解释": {
         "type": "string",
-        "description": "第一列名称",
-        "example": "education_level"
+        "description": "结果解释（通俗易懂的中文）",
+        "examples": {
+            "相关性分析（正相关）": "age 和 salary 之间呈正相关，即age越大，salary也越大",
+            "相关性分析（负相关）": "age 和 job_satisfaction_score 之间呈负相关，即age越大，job_satisfaction_score越小",
+            "相关性分析（不显著）": "age 和 salary 之间相关性不明显，可能没有线性关系",
+            "卡方检验（显著）": "gender 和 product 之间有关系，关系很强",
+            "卡方检验（不显著）": "gender 和 product 之间关系不明显，可能是独立的",
+            "方差分析（显著）": "不同education的salary有差异，差异很大，其中MS的salary最高，HS的最低",
+            "方差分析（不显著）": "不同education的salary差异不明显，可能差不多"
+        }
     },
-    "column2_name": {
-        "type": "string",
-        "description": "第二列名称",
-        "example": "annual_salary"
-    },
-    "column1_type": {
-        "type": "string",
-        "enum": ["numerical", "categorical"],
-        "description": "第一列数据类型",
-        "example": "categorical"
-    },
-    "column2_type": {
-        "type": "string",
-        "enum": ["numerical", "categorical"],
-        "description": "第二列数据类型",
-        "example": "numerical"
-    },
-    "method_used": {
-        "type": "string",
-        "enum": ["chi_square", "correlation", "anova"],
-        "description": "使用的分析方法",
-        "example": "anova"
-    },
-    "statistic_name": {
-        "type": "string",
-        "description": "统计量名称",
-        "example": "F-statistic"
-    },
-    "statistic_value": {
-        "type": "float",
-        "description": "统计量的值",
-        "example": 4271.02
-    },
-    "p_value": {
-        "type": "float",
-        "description": "P值（显著性概率）",
-        "example": 2.75e-95
-    },
-    "effect_size": {
-        "type": "float",
-        "description": "效应量",
-        "example": 0.989
-    },
-    "effect_size_name": {
-        "type": "string",
-        "description": "效应量名称",
-        "example": "Eta²"
-    },
-    "significant": {
-        "type": "boolean",
-        "description": "是否显著",
-        "example": True
-    },
-    "significance_level_used": {
-        "type": "float",
-        "description": "使用的显著性水平",
-        "example": 0.05
-    },
-    "interpretation": {
-        "type": "string",
-        "description": "结果解释（中文）",
-        "example": "education_level 的不同水平在 annual_salary 上存在显著差异（大效应,F=4271.0169,p<0.001,α=0.05）"
-    },
-    "details": {
+    "算法结果": {
         "type": "object",
-        "description": "详细统计信息（根据方法不同而不同）",
+        "description": "算法结果详情",
         "properties": {
-            # 卡方检验的details
-            "chi_square": {"type": "float", "description": "卡方统计量"},
-            "p_value": {"type": "float", "description": "P值"},
-            "degrees_of_freedom": {"type": "integer", "description": "自由度"},
-            "cramers_v": {"type": "float", "description": "Cramér's V效应量"},
-            "contingency_table": {"type": "object", "description": "列联表"},
-            "sample_size": {"type": "integer", "description": "样本数"},
-            "strength": {"type": "string", "description": "效应强度"},
-            
-            # 相关性分析的details
-            "pearson_r": {"type": "float", "description": "Pearson相关系数"},
-            "pearson_p": {"type": "float", "description": "Pearson P值"},
-            "spearman_r": {"type": "float", "description": "Spearman相关系数"},
-            "spearman_p": {"type": "float", "description": "Spearman P值"},
-            "r_squared": {"type": "float", "description": "决定系数R²"},
-            "direction": {"type": "string", "description": "相关方向"},
-            
-            # ANOVA的details
-            "f_statistic": {"type": "float", "description": "F统计量"},
-            "eta_squared": {"type": "float", "description": "Eta²效应量"},
-            "num_groups": {"type": "integer", "description": "组数"},
-            "group_statistics": {
-                "type": "array",
-                "description": "各组统计信息",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "category": {"type": "string", "description": "类别名"},
-                        "mean": {"type": "float", "description": "均值"},
-                        "std": {"type": "float", "description": "标准差"},
-                        "count": {"type": "integer", "description": "样本数"}
+            "第一列": {
+                "type": "string",
+                "description": "第一列：列名(类型)",
+                "example": "education_level(分类型)"
+            },
+            "第二列": {
+                "type": "string",
+                "description": "第二列：列名(类型)",
+                "example": "annual_salary(数值型)"
+            },
+            "分析方法": {
+                "type": "string",
+                "enum": ["卡方检验", "相关性分析", "方差分析"],
+                "description": "使用的分析方法",
+                "example": "方差分析"
+            },
+            "统计量": {
+                "type": "string",
+                "description": "统计量：名称=值",
+                "example": "F-statistic=4271.0169"
+            },
+            "P值": {
+                "type": "float",
+                "description": "P值（显著性概率）",
+                "example": 2.75e-95
+            },
+            "效应量": {
+                "type": "string",
+                "description": "效应量：名称=值",
+                "example": "Eta²=0.9890"
+            },
+            "是否显著": {
+                "type": "boolean",
+                "description": "是否显著",
+                "example": True
+            },
+            "显著性水平": {
+                "type": "float",
+                "description": "使用的显著性水平",
+                "example": 0.05
+            },
+            "详细信息": {
+                "type": "object",
+                "description": "详细统计信息（所有字段均为中文，根据方法不同而不同）",
+                "properties": {
+                    # 卡方检验的details
+                    "卡方统计量": {"type": "float", "description": "卡方统计量"},
+                    "P值": {"type": "float", "description": "P值"},
+                    "自由度": {"type": "integer", "description": "自由度"},
+                    "Cramér's V": {"type": "float", "description": "Cramér's V效应量"},
+                    "列联表": {"type": "object", "description": "列联表"},
+                    "样本数": {"type": "integer", "description": "样本数"},
+                    "效应强度": {"type": "string", "description": "效应强度"},
+                    "参数解释": {"type": "string", "description": "参数解释"},
+                    
+                    # 相关性分析的details
+                    "Pearson相关系数": {"type": "float", "description": "Pearson相关系数"},
+                    "Pearson P值": {"type": "float", "description": "Pearson P值"},
+                    "Spearman相关系数": {"type": "float", "description": "Spearman相关系数"},
+                    "Spearman P值": {"type": "float", "description": "Spearman P值"},
+                    "决定系数R²": {"type": "float", "description": "决定系数R²"},
+                    "相关方向": {"type": "string", "description": "相关方向"},
+                    "相关强度": {"type": "string", "description": "相关强度"},
+                    
+                    # ANOVA的details
+                    "F统计量": {"type": "float", "description": "F统计量"},
+                    "Eta²效应量": {"type": "float", "description": "Eta²效应量"},
+                    "分组数": {"type": "integer", "description": "组数"},
+                    "各组统计": {
+                        "type": "array",
+                        "description": "各组统计信息",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "类别": {"type": "string", "description": "类别名"},
+                                "均值": {"type": "float", "description": "均值"},
+                                "标准差": {"type": "float", "description": "标准差"},
+                                "样本数": {"type": "integer", "description": "样本数"}
+                            }
+                        }
                     }
                 }
-            },
-            "effect_strength": {"type": "string", "description": "效应强度"}
+            }
         }
     }
 }

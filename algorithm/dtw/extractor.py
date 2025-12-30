@@ -48,9 +48,9 @@ class DTWExtractor(BaseAlgorithmExtractor):
 3. 序列2的数值列
 
 提取参数说明：
-1. time_column: 时间列名（必需）,用于对数据排序
-2. time_series1: 数值列1的列名(必需),数据将从该列提取
-3. time_series2: 数值列2的列名(必需),数据将从该列提取
+1. time_column: 时间列注释（必需）,用于对数据排序
+2. time_series1: 数值列1的列注释(必需),数据将从该列提取
+3. time_series2: 数值列2的列注释(必需),数据将从该列提取
 4. window_size (可选): Sakoe-Chiba带约束窗口大小(正整数或null)
 5. distance_metric (可选): euclidean/manhattan/cosine(默认euclidean)
 6. normalize (可选): true/false(默认true)
@@ -64,7 +64,8 @@ class DTWExtractor(BaseAlgorithmExtractor):
 2. time_column应选择时间、日期或序号类型的列
 3. time_series1和time_series2必须是数值型列(标记为[数值型]的列)
 4. time_series1和time_series2不能是同一列
-5. 列名必须与数据库schema中的column_name完全一致
+5. required_columns中一定写明列注释，一定与normalized_query的使用的名称相同，如"required_columns": ["日期", "销售额"],"normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，共2列数据"
+6. normalized_query中一定写明返回的数据列注释（即timestamp_column+value_column），并且标名返回几列数据，否则无法正确解析，如"获取日期、销售额，共2列数据"！！！
 
 常见应用场景识别：
 - "温度和湿度" → time_series1=temperature, time_series2=humidity
@@ -84,7 +85,7 @@ class DTWExtractor(BaseAlgorithmExtractor):
     "step_pattern": "symmetric2"或"symmetric1"或"asymmetric"或null
   }},
   "required_columns": ["time_column的值", "time_series1的值", "time_series2的值"],
-  "normalized_query": "使用DTW算法分析两列数值序列的相似度"
+  "normalized_query": "查询"
 }}"""
         
         user_prompt = f"""用户问题: {question}
