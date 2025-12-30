@@ -101,35 +101,76 @@ FORECAST_SERVICE_URL=http://192.168.5.106:8100
 
 ## 输出结果
 
-详细的返回参数说明请参考 [算法返回参数规范文档](../趋势分析相关算法返回.md)。
+详细的返回参数说明请参考 [趋势分析与预测接口文档](../趋势分析与预测接口文档.md)。
+
+### 🆕 大模型智能分析
+
+系统集成了大模型（LLM）自动分析功能，会将算法原始结果转换为用户友好的自然语言分析报告。
+
+**响应结构**：
+```json
+{
+  "readable_result": {
+    "llm_analysis": "根据分析结果，您的数据呈现明显的上升趋势，平均每周增长约3%...",
+    "technical_details": {
+      "summary": "算法执行完成",
+      "status": "success",
+      "metrics": {
+        "trend_direction": "increasing",
+        "slope": 0.0234,
+        "r_squared": 0.85
+      }
+    },
+    "analysis_source": "llm_enhanced"
+  }
+}
+```
+
+**analysis_source 取值**：
+- `llm_enhanced`: 大模型增强分析
+- `fallback`: 降级处理（模板生成）
 
 ### 趋势分解输出
 ```json
 {
-  "decomposition": {
-    "trend": [{"timestamp": "2024-01-01", "value": 1200}, ...],
-    "seasonal": [{"timestamp": "2024-01-01", "value": 34.56}, ...],
-    "residual": [{"timestamp": "2024-01-01", "value": 0.0}, ...]
+  "是否成功": true,
+  "分解结果": {
+    "趋势成分": [{"时间点": "2024-01-01", "值": 1200}, ...],
+    "季节成分": [{"时间点": "2024-01-01", "值": 34.56}, ...],
+    "残差成分": [{"时间点": "2024-01-01", "值": 0.0}, ...]
   },
-  "analysis_type": "decomposition",
-  "algorithm_used": "stl",
-  "period_used": 7,
-  "data_points": 100
+  "分析类型": "decomposition",
+  "使用算法": "stl",
+  "使用周期": 7,
+  "数据点数": 100,
+  "通俗摘要": {
+    "标题": "📊 时间序列趋势分解分析",
+    "关键发现": ["数据呈现明显的上升趋势", "存在周期为7的季节性波动"],
+    "详细解释": "通过STL分解算法，将您的数据分解为趋势、季节性和残差三个部分...",
+    "建议": ["关注趋势变化", "考虑季节性因素进行规划"]
+  }
 }
 ```
 
 ### 趋势检测输出
 ```json
 {
-  "detection": {
-    "trend_direction": "increasing",
-    "sen_slope": 0.0234,
-    "p_value": 0.0012,
-    "statistical_significance": true
+  "是否成功": true,
+  "检测结果": {
+    "趋势方向": "increasing",
+    "斜率": 0.0234,
+    "p值": 0.0012,
+    "统计显著": true
   },
-  "analysis_type": "detection",
-  "method_used": "mann_kendall",
-  "data_points": 100
+  "分析类型": "detection",
+  "使用方法": "mann_kendall",
+  "数据点数": 100,
+  "通俗摘要": {
+    "标题": "📈 趋势检测分析结果",
+    "关键发现": ["数据存在显著上升趋势", "统计检验结果高度可信"],
+    "详细解释": "使用Mann-Kendall检验方法分析，p值为0.0012，远小于0.05...",
+    "建议": ["趋势明显，可据此进行预测", "建议持续监控趋势变化"]
+  }
 }
 ```
 
@@ -143,6 +184,11 @@ algorithm/trend_analysis/
 ├── processor.py         # 数据处理器（TrendAnalysisProcessor）
 └── README.md            # 本文档
 ```
+
+## 相关文档
+
+- [趋势分析与预测接口文档](../趋势分析与预测接口文档.md) - 完整的返回参数说明和前端集成指南
+- [算法接入指南](../../算法接入改.md) - 新算法接入说明
 
 ## 核心组件
 

@@ -5,3 +5,21 @@ frontend/
 .idea/
 tests/
 text2vec-base-chinese/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Hypothesis testing
+.hypothesis/
+
+# Pytest cache
+.pytest_cache/
+
+# Environment
+.env.local
+*.egg-info/
+dist/
+build/

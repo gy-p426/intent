@@ -2,6 +2,7 @@
 """
 多变量预测API路由
 实现 /api/v1/forecast/multivariate 端点
+返回数据使用中文字段名
 """
 from datetime import datetime
 from typing import Dict, Any, List, Optional
@@ -63,32 +64,31 @@ class MultivariateForecastRequest(BaseModel):
 
 
 class MultivariateForecastResponse(BaseModel):
-    """多变量预测响应"""
-    model_config = ConfigDict(protected_namespaces=())
+    """多变量预测响应（中文字段名）"""
+    model_config = ConfigDict(protected_namespaces=(), populate_by_name=True)
     
-    success: bool = Field(..., description="请求是否成功")
-    message: Optional[str] = Field(default=None, description="响应消息")
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="响应时间戳")
-    model_id: Optional[str] = Field(default=None, description="模型ID")
-    model_name: Optional[str] = Field(default=None, description="模型名称")
-    model_used: Optional[str] = Field(default=None, description="使用的算法")
-    predictions: Optional[List[Dict[str, Any]]] = Field(default=None, description="预测结果")
-    metrics: Optional[Dict[str, float]] = Field(default=None, description="模型指标")
-    reused_model: bool = Field(default=False, description="是否复用已有模型")
-    processing_time: Optional[float] = Field(default=None, description="处理时间(秒)")
-    results: Optional[Dict[str, Any]] = Field(default=None, description="完整结果")
-    data_analysis: Optional[Dict[str, Any]] = Field(default=None, description="数据分析结果")
+    是否成功: bool = Field(..., alias="是否成功", description="请求是否成功")
+    消息: Optional[str] = Field(default=None, alias="消息", description="响应消息")
+    时间戳: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), alias="时间戳", description="响应时间戳")
+    模型ID: Optional[str] = Field(default=None, alias="模型ID", description="模型ID")
+    模型名称: Optional[str] = Field(default=None, alias="模型名称", description="模型名称")
+    使用模型: Optional[str] = Field(default=None, alias="使用模型", description="使用的算法")
+    预测列表: Optional[List[Dict[str, Any]]] = Field(default=None, alias="预测列表", description="预测结果")
+    评估指标: Optional[Dict[str, float]] = Field(default=None, alias="评估指标", description="模型指标")
+    是否复用模型: bool = Field(default=False, alias="是否复用模型", description="是否复用已有模型")
+    处理时间: Optional[float] = Field(default=None, alias="处理时间", description="处理时间(秒)")
+    预测结果: Optional[Dict[str, Any]] = Field(default=None, alias="预测结果", description="完整结果")
+    数据分析: Optional[Dict[str, Any]] = Field(default=None, alias="数据分析", description="数据分析结果")
 
 
 # ============ API端点 ============
 
 @router.post(
     "/multivariate",
-    response_model=MultivariateForecastResponse,
     summary="多变量时序预测",
-    description="对多变量时间序列数据进行预测，支持多种机器学习算法"
+    description="对多变量时间序列数据进行预测，支持多种机器学习算法，返回中文字段名"
 )
-async def multivariate_forecast(request: MultivariateForecastRequest) -> MultivariateForecastResponse:
+async def multivariate_forecast(request: MultivariateForecastRequest) -> Dict[str, Any]:
     """
     多变量预测端点
     
@@ -101,6 +101,8 @@ async def multivariate_forecast(request: MultivariateForecastRequest) -> Multiva
         - model_name: 模型名称（用于保存和复用）
         - use_model_id: 复用指定ID的模型
         - use_model_name: 复用指定名称的模型
+    
+    返回数据使用中文字段名
     """
     try:
         logger.info("收到多变量预测请求")
@@ -112,43 +114,47 @@ async def multivariate_forecast(request: MultivariateForecastRequest) -> Multiva
             'config': request.config or {}
         }
         
-        # 执行预测
+        # 执行预测（返回中文字段名）
         result = predictor.forecast(request_data)
         
         processing_time = time.time() - start_time
         
-        if result.get('success'):
-            # 格式化预测结果
+        # 结果已经是中文字段名，直接使用
+        if result.get('是否成功'):
+            # 格式化预测结果列表
             predictions = None
-            if 'results' in result and result['results']:
-                forecast_data = result['results']
-                if 'forecast' in forecast_data and 'timestamps' in forecast_data:
+            results_data = result.get('预测结果', {})
+            if results_data:
+                forecast_values = results_data.get('预测值', [])
+                timestamps = results_data.get('时间点', [])
+                
+                if forecast_values and timestamps:
                     predictions = [
-                        {'timestamp': ts, 'value': val}
-                        for ts, val in zip(forecast_data['timestamps'], forecast_data['forecast'])
+                        {'时间戳': ts, '数值': val}
+                        for ts, val in zip(timestamps, forecast_values)
                     ]
             
-            return MultivariateForecastResponse(
-                success=True,
-                message="预测完成",
-                timestamp=datetime.utcnow().isoformat(),
-                model_id=result.get('model_id'),
-                model_name=result.get('model_name'),
-                model_used=result.get('model_used'),
-                predictions=predictions,
-                metrics=result.get('metrics'),
-                reused_model=result.get('reused_model', False),
-                processing_time=round(processing_time, 3),
-                results=result.get('results'),
-                data_analysis=result.get('data_analysis')
-            )
+            return {
+                "是否成功": True,
+                "消息": "预测完成",
+                "时间戳": datetime.utcnow().isoformat(),
+                "模型ID": result.get('模型ID'),
+                "模型名称": result.get('模型名称'),
+                "使用模型": result.get('使用模型'),
+                "预测列表": predictions,
+                "评估指标": result.get('评估指标'),
+                "是否复用模型": result.get('是否复用模型', False),
+                "处理时间": round(processing_time, 3),
+                "预测结果": results_data,
+                "数据分析": result.get('数据分析')
+            }
         else:
-            return MultivariateForecastResponse(
-                success=False,
-                message=result.get('message', '预测失败'),
-                timestamp=datetime.utcnow().isoformat(),
-                processing_time=round(processing_time, 3)
-            )
+            return {
+                "是否成功": False,
+                "消息": result.get('消息', '预测失败'),
+                "时间戳": datetime.utcnow().isoformat(),
+                "处理时间": round(processing_time, 3)
+            }
             
     except ValueError as e:
         logger.warning(f"多变量预测参数错误: {e}")

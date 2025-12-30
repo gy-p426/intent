@@ -18,6 +18,8 @@ sys.path.insert(0, forecast_service_root)
 
 # 导入核心服务
 from core.trend_analysis.core import TrendService
+# 导入字段映射工具
+from core.field_mapper import FieldMapper
 
 logger = logging.getLogger(__name__)
 
@@ -81,23 +83,27 @@ class TrendDetectionRequest(BaseModel):
 
 
 class TrendDecompositionResponse(BaseModel):
-    """趋势分解响应"""
-    success: bool = Field(..., description="请求是否成功")
-    task_id: str = Field(..., description="任务ID")
-    message: Optional[str] = Field(default=None, description="响应消息")
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="响应时间戳")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
-    results: Dict[str, Any] = Field(default_factory=dict, description="分解结果")
+    """趋势分解响应 - 使用中文字段名"""
+    是否成功: bool = Field(..., description="请求是否成功", alias="success")
+    任务ID: str = Field(..., description="任务ID", alias="task_id")
+    消息: Optional[str] = Field(default=None, description="响应消息", alias="message")
+    时间戳: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="响应时间戳", alias="timestamp")
+    元数据: Dict[str, Any] = Field(default_factory=dict, description="元数据", alias="metadata")
+    分解结果: Dict[str, Any] = Field(default_factory=dict, description="分解结果", alias="results")
+    
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class TrendDetectionResponse(BaseModel):
-    """趋势检测响应"""
-    success: bool = Field(..., description="请求是否成功")
-    task_id: str = Field(..., description="任务ID")
-    message: Optional[str] = Field(default=None, description="响应消息")
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="响应时间戳")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
-    results: Dict[str, Any] = Field(default_factory=dict, description="检测结果")
+    """趋势检测响应 - 使用中文字段名"""
+    是否成功: bool = Field(..., description="请求是否成功", alias="success")
+    任务ID: str = Field(..., description="任务ID", alias="task_id")
+    消息: Optional[str] = Field(default=None, description="响应消息", alias="message")
+    时间戳: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="响应时间戳", alias="timestamp")
+    元数据: Dict[str, Any] = Field(default_factory=dict, description="元数据", alias="metadata")
+    检测结果: Dict[str, Any] = Field(default_factory=dict, description="检测结果", alias="results")
+    
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # ============ 辅助函数 ============
@@ -115,7 +121,7 @@ def generate_task_id() -> str:
     summary="趋势分解",
     description="对时间序列数据进行趋势分解，提取趋势、季节性和残差成分"
 )
-async def trend_decomposition(request: TrendDecompositionRequest) -> TrendDecompositionResponse:
+async def trend_decomposition(request: TrendDecompositionRequest) -> Dict[str, Any]:
     """
     趋势分解端点
     
@@ -125,8 +131,12 @@ async def trend_decomposition(request: TrendDecompositionRequest) -> TrendDecomp
     - **algorithm**: 分解算法（auto/stl/classical）
     """
     try:
-        logger.info("收到趋势分解请求")
+        logger.info(f"收到趋势分解请求，数据点数量: {len(request.data)}")
         task_id = generate_task_id()
+        
+        # 检查最小数据量
+        if len(request.data) < 4:
+            raise ValueError(f"数据点数量不足，至少需要4个数据点，当前只有{len(request.data)}个")
         
         # 准备数据
         data_points = [point.model_dump() for point in request.data]
@@ -138,11 +148,28 @@ async def trend_decomposition(request: TrendDecompositionRequest) -> TrendDecomp
             period = trend_service.detect_seasonal_period(series)
             logger.info(f"自动检测到季节周期: {period}")
         
-        # 选择算法
+        # 如果周期仍为 None 或数据量不足，使用默认周期
+        if period is None:
+            period = min(len(series) // 2, 7)  # 默认周期，最大为7
+            logger.info(f"无法检测周期，使用默认周期: {period}")
+        
+        # 根据数据量自动调整算法
         algorithm = request.algorithm
+        min_data_for_classical = 2 * period
+        
         if algorithm == "auto":
-            algorithm = trend_service.auto_select_decomposition_algorithm(series, period)
-            logger.info(f"自动选择算法: {algorithm}")
+            # 自动选择：数据量足够用 classical，否则用 stl
+            if len(series) >= min_data_for_classical:
+                algorithm = trend_service.auto_select_decomposition_algorithm(series, period)
+            else:
+                algorithm = "stl"
+                logger.info(f"数据量({len(series)})不足以使用经典分解(需要{min_data_for_classical})，自动切换到STL算法")
+        elif algorithm == "classical" and len(series) < min_data_for_classical:
+            # 用户指定 classical 但数据量不足，自动降级到 stl
+            logger.warning(f"数据量({len(series)})不足以使用经典分解(需要{min_data_for_classical})，自动切换到STL算法")
+            algorithm = "stl"
+        
+        logger.info(f"使用算法: {algorithm}, 周期: {period}, 数据点: {len(series)}")
         
         # 执行分解
         if algorithm == "stl":
@@ -154,19 +181,25 @@ async def trend_decomposition(request: TrendDecompositionRequest) -> TrendDecomp
         else:
             raise ValueError(f"不支持的算法: {algorithm}")
         
-        return TrendDecompositionResponse(
-            success=True,
-            task_id=task_id,
-            message=f"趋势分解完成，使用{algorithm.upper()}算法",
-            timestamp=datetime.utcnow().isoformat(),
-            metadata={
-                "period_detected": period,
-                "algorithm_selected": algorithm,
-                "data_points": len(series),
-                "decomposition_model": request.decomposition_model
+        # 生成通俗易懂的摘要（已使用中文字段名）
+        readable_summary = trend_service.generate_readable_summary(results, "decomposition")
+        results["通俗摘要"] = readable_summary
+        
+        # 返回中文字段名的响应
+        return {
+            "是否成功": True,
+            "任务ID": task_id,
+            "消息": readable_summary.get("标题", f"趋势分解完成，使用{algorithm.upper()}算法"),
+            "时间戳": datetime.utcnow().isoformat(),
+            "元数据": {
+                "检测周期": period,
+                "选择算法": algorithm,
+                "数据点数": len(series),
+                "分解模型": request.decomposition_model,
+                "算法自动调整": algorithm != request.algorithm
             },
-            results=results
-        )
+            "分解结果": results
+        }
         
     except ValueError as e:
         logger.warning(f"趋势分解参数错误: {e}")
@@ -182,7 +215,7 @@ async def trend_decomposition(request: TrendDecompositionRequest) -> TrendDecomp
     summary="趋势检测",
     description="检测时间序列数据中的趋势方向和统计显著性"
 )
-async def trend_detection(request: TrendDetectionRequest) -> TrendDetectionResponse:
+async def trend_detection(request: TrendDetectionRequest) -> Dict[str, Any]:
     """
     趋势检测端点
     
@@ -214,9 +247,12 @@ async def trend_detection(request: TrendDetectionRequest) -> TrendDetectionRespo
                     decomposed = trend_service.decompose_trend_classical(
                         series, period, model="additive"
                     )
+                    # 适配中文字段名
+                    trend_data = decomposed.get('趋势分量', decomposed.get('trend', []))
                     adjusted_series = pd.Series(
-                        {pd.Timestamp(item['timestamp']): item['value'] 
-                         for item in decomposed['trend']},
+                        {pd.Timestamp(item['时间戳'] if '时间戳' in item else item['timestamp']): 
+                         item['数值'] if '数值' in item else item['value'] 
+                         for item in trend_data},
                         dtype=float
                     )
                     series = adjusted_series.dropna()
@@ -236,19 +272,24 @@ async def trend_detection(request: TrendDetectionRequest) -> TrendDetectionRespo
         else:
             raise ValueError(f"不支持的检测方法: {method}")
         
-        return TrendDetectionResponse(
-            success=True,
-            task_id=task_id,
-            message="趋势检测完成",
-            timestamp=datetime.utcnow().isoformat(),
-            metadata={
-                "method_used": results.get("method", method),
-                "data_points": len(series),
-                "confidence_level": request.confidence_level,
-                "seasonal_adjustment": request.include_seasonal_adjustment
+        # 生成通俗易懂的摘要（已使用中文字段名）
+        readable_summary = trend_service.generate_readable_summary(results, "detection")
+        results["通俗摘要"] = readable_summary
+        
+        # 返回中文字段名的响应
+        return {
+            "是否成功": True,
+            "任务ID": task_id,
+            "消息": readable_summary.get("标题", "趋势检测完成"),
+            "时间戳": datetime.utcnow().isoformat(),
+            "元数据": {
+                "使用方法": results.get("检测方法", method),
+                "数据点数": len(series),
+                "置信水平": request.confidence_level,
+                "季节性调整": request.include_seasonal_adjustment
             },
-            results=results
-        )
+            "检测结果": results
+        }
         
     except ValueError as e:
         logger.warning(f"趋势检测参数错误: {e}")

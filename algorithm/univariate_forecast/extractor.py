@@ -64,20 +64,21 @@ class UnivariateForecastExtractor(BaseAlgorithmExtractor):
 2. value_column的值必须是数据库中实际存在的数值型列名
 3. 不要创造不存在的列名
 4. 列名必须与数据库schema中的column_name完全一致
-5. normalized_query中一定写明返回的数据列（时间列+数值列）
+5. 优先选择有注释说明的列
+6. normalized_query中一定写明返回的数据列注释（即timestamp_column+value_column），并且标名返回几列数据，否则无法正确解析，如"获取日期、销售额，共2列数据"！！！
 
 输出JSON格式（严格遵守）：
 {{
   "parameter_mapping": {{
-    "timestamp_column": "时间列名",
-    "value_column": "数值列名",
-    "forecast_horizon": 预测步数,
-    "model_type": "auto/arima/prophet",
+    "timestamp_column": "日期",
+    "value_column": "销售额",
+    "forecast_horizon": 24,
+    "model_type": "auto",
     "include_confidence": true,
     "confidence_level": 0.95
   }},
-  "required_columns": ["时间列名", "数值列名"],
-  "normalized_query": "获取XXX的历史时间序列数据用于预测"
+  "required_columns": ["日期", "销售额"],
+  "normalized_query": "获取历史销售数据的日期、销售额，共2列数据"
 }}"""
         
         user_prompt = f"""用户问题: {question}
