@@ -13,7 +13,10 @@ from statsmodels.tsa.seasonal import seasonal_decompose, STL
 import logging
 
 # 导入字段映射工具
-from forecast_service.core.field_mapper import FieldMapper
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+from core.field_mapper import FieldMapper
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore')

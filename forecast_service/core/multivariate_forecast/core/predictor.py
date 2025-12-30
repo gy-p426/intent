@@ -8,7 +8,10 @@ from datetime import datetime
 import uuid
 
 # 导入字段映射工具
-from forecast_service.core.field_mapper import FieldMapper
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+from core.field_mapper import FieldMapper
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +86,12 @@ class MultivariatePredictor:
             
             # 转换预测结果为中文字段名
             chinese_predictions = self._convert_predictions_to_chinese(predictions)
+            
+            # 生成通俗易懂的摘要（复用模型时没有评估指标，使用空字典）
+            readable_summary = self.generate_readable_summary(
+                chinese_predictions, {}, metadata['algorithm'], {}, len(feature_columns)
+            )
+            chinese_predictions['通俗摘要'] = readable_summary
             
             return {
                 '是否成功': True, '预测结果': chinese_predictions, '使用模型': metadata['algorithm'],

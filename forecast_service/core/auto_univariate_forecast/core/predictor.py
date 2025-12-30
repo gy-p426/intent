@@ -11,7 +11,10 @@ from ..models.arima_model import ARIMAModel
 from ..models.prophet_model import ProphetModel
 
 # 导入字段映射工具
-from forecast_service.core.field_mapper import FieldMapper
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+from core.field_mapper import FieldMapper
 
 logger = logging.getLogger(__name__)
 
@@ -65,26 +68,108 @@ class AutoUnivariatePredictor:
             }
 
     def _parse_request_data(self, request_data: dict) -> pd.DataFrame:
+        """解析请求数据，支持多种格式"""
         data = request_data['data']
-        df = pd.DataFrame({'timestamp': data['timestamp'], 'value': data['value']})
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        df.set_index('timestamp', inplace=True)
+        
+        # 格式1: {"timestamp": [...], "value": [...]}
+        if 'timestamp' in data and 'value' in data:
+            df = pd.DataFrame({'timestamp': data['timestamp'], 'value': data['value']})
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df.set_index('timestamp', inplace=True)
+        
+        # 格式2: {"sample_data": [{"日期": "...", "出车次数": ...}, ...]} 或类似的对象数组
+        elif 'sample_data' in data:
+            sample_data = data['sample_data']
+            df = self._parse_object_array(sample_data)
+        
+        # 格式3: 直接是对象数组 [{"日期": "...", "出车次数": ...}, ...]
+        elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+            df = self._parse_object_array(data)
+        
+        else:
+            raise ValueError("不支持的数据格式，请使用 {'timestamp': [...], 'value': [...]} 或对象数组格式")
+        
         df = df.sort_index()
         if df.index.duplicated().any():
             df = df.groupby(df.index).mean()
+        return df
+    
+    def _parse_object_array(self, data_list: list) -> pd.DataFrame:
+        """解析对象数组格式的数据"""
+        if not data_list:
+            raise ValueError("数据列表为空")
+        
+        # 获取第一个对象的键名
+        first_item = data_list[0]
+        keys = list(first_item.keys())
+        
+        # 常见的时间字段名
+        time_field_names = ['timestamp', 'time', 'date', 'datetime', '时间', '日期', '时间戳', 'ds']
+        # 常见的值字段名
+        value_field_names = ['value', 'y', '值', '数值', '出车次数', '销量', '数量', '金额']
+        
+        # 自动检测时间字段
+        time_field = None
+        for name in time_field_names:
+            if name in keys:
+                time_field = name
+                break
+        
+        # 如果没找到，使用第一个字段作为时间字段
+        if time_field is None:
+            time_field = keys[0]
+            logger.info(f"未找到标准时间字段，使用第一个字段 '{time_field}' 作为时间字段")
+        
+        # 自动检测值字段
+        value_field = None
+        for name in value_field_names:
+            if name in keys:
+                value_field = name
+                break
+        
+        # 如果没找到，使用第二个字段（或非时间字段）作为值字段
+        if value_field is None:
+            for key in keys:
+                if key != time_field:
+                    value_field = key
+                    break
+            logger.info(f"未找到标准值字段，使用字段 '{value_field}' 作为值字段")
+        
+        if value_field is None:
+            raise ValueError("无法确定值字段，请确保数据包含数值列")
+        
+        # 提取数据
+        timestamps = [item[time_field] for item in data_list]
+        values = [item[value_field] for item in data_list]
+        
+        logger.info(f"解析数据: 时间字段='{time_field}', 值字段='{value_field}', 数据点数={len(timestamps)}")
+        
+        df = pd.DataFrame({'timestamp': timestamps, 'value': values})
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df['value'] = pd.to_numeric(df['value'], errors='coerce')
+        df.set_index('timestamp', inplace=True)
+        
         return df
 
     def _train_and_predict(self, model_name: str, df: pd.DataFrame, params: dict, horizon: int) -> dict:
         """训练模型并预测，返回中文字段名"""
         try:
+            # 检测数据频率
+            freq = self._detect_frequency(df)
+            
             if model_name == 'prophet':
                 model = ProphetModel(params)
                 model.fit(df)
-                result = model.predict(horizon)
+                result = model.predict(horizon, freq=freq)
             elif model_name == 'arima':
                 model = ARIMAModel(params)
                 model.fit(df['value'])
                 result = model.predict(horizon)
+                # ARIMA 模型需要手动生成预测时间点
+                if 'forecast_dates' not in result or not result.get('forecast_dates'):
+                    last_date = df.index.max()
+                    forecast_dates = pd.date_range(start=last_date, periods=horizon + 1, freq=freq)[1:]
+                    result['forecast_dates'] = [str(date.strftime('%Y-%m-%d %H:%M:%S')) for date in forecast_dates]
             else:
                 raise ValueError(f"不支持的模型类型: {model_name}")
 
@@ -101,6 +186,36 @@ class AutoUnivariatePredictor:
             return chinese_result
         except Exception as e:
             raise RuntimeError(f"模型训练和预测失败: {str(e)}")
+    
+    def _detect_frequency(self, df: pd.DataFrame) -> str:
+        """检测时间序列的频率"""
+        try:
+            if len(df) < 2:
+                return 'D'
+            
+            # 计算时间差
+            time_diffs = df.index.to_series().diff().dropna()
+            if len(time_diffs) == 0:
+                return 'D'
+            
+            # 获取最常见的时间差
+            median_diff = time_diffs.median()
+            
+            # 根据时间差判断频率
+            if median_diff <= pd.Timedelta(minutes=5):
+                return 'T'  # 分钟
+            elif median_diff <= pd.Timedelta(hours=2):
+                return 'H'  # 小时
+            elif median_diff <= pd.Timedelta(days=1.5):
+                return 'D'  # 天
+            elif median_diff <= pd.Timedelta(days=8):
+                return 'W'  # 周
+            elif median_diff <= pd.Timedelta(days=35):
+                return 'M'  # 月
+            else:
+                return 'D'  # 默认天
+        except Exception:
+            return 'D'
 
     def _clean_data_for_serialization(self, data):
         if isinstance(data, dict):

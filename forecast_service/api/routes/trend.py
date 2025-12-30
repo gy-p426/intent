@@ -20,6 +20,8 @@ sys.path.insert(0, forecast_service_root)
 from core.trend_analysis.core import TrendService
 # 导入字段映射工具
 from core.field_mapper import FieldMapper
+# 导入统一输出格式化器
+from core.unified_output_formatter import UnifiedOutputFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,9 @@ router = APIRouter(prefix="/api/v1/trend", tags=["趋势分析"])
 
 # 初始化趋势分析服务
 trend_service = TrendService()
+
+# 初始化统一输出格式化器
+unified_formatter = UnifiedOutputFormatter()
 
 
 # ============ 请求/响应模型 ============
@@ -83,25 +88,17 @@ class TrendDetectionRequest(BaseModel):
 
 
 class TrendDecompositionResponse(BaseModel):
-    """趋势分解响应 - 使用中文字段名"""
-    是否成功: bool = Field(..., description="请求是否成功", alias="success")
-    任务ID: str = Field(..., description="任务ID", alias="task_id")
-    消息: Optional[str] = Field(default=None, description="响应消息", alias="message")
-    时间戳: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="响应时间戳", alias="timestamp")
-    元数据: Dict[str, Any] = Field(default_factory=dict, description="元数据", alias="metadata")
-    分解结果: Dict[str, Any] = Field(default_factory=dict, description="分解结果", alias="results")
+    """趋势分解响应 - 统一输出格式"""
+    解释: str = Field(..., description="面向用户的通俗分析结论")
+    算法结果: Dict[str, Any] = Field(..., description="算法特定的详细数据")
     
     model_config = ConfigDict(populate_by_name=True)
 
 
 class TrendDetectionResponse(BaseModel):
-    """趋势检测响应 - 使用中文字段名"""
-    是否成功: bool = Field(..., description="请求是否成功", alias="success")
-    任务ID: str = Field(..., description="任务ID", alias="task_id")
-    消息: Optional[str] = Field(default=None, description="响应消息", alias="message")
-    时间戳: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="响应时间戳", alias="timestamp")
-    元数据: Dict[str, Any] = Field(default_factory=dict, description="元数据", alias="metadata")
-    检测结果: Dict[str, Any] = Field(default_factory=dict, description="检测结果", alias="results")
+    """趋势检测响应 - 统一输出格式"""
+    解释: str = Field(..., description="面向用户的通俗分析结论")
+    算法结果: Dict[str, Any] = Field(..., description="算法特定的详细数据")
     
     model_config = ConfigDict(populate_by_name=True)
 
@@ -132,7 +129,6 @@ async def trend_decomposition(request: TrendDecompositionRequest) -> Dict[str, A
     """
     try:
         logger.info(f"收到趋势分解请求，数据点数量: {len(request.data)}")
-        task_id = generate_task_id()
         
         # 检查最小数据量
         if len(request.data) < 4:
@@ -169,37 +165,51 @@ async def trend_decomposition(request: TrendDecompositionRequest) -> Dict[str, A
             logger.warning(f"数据量({len(series)})不足以使用经典分解(需要{min_data_for_classical})，自动切换到STL算法")
             algorithm = "stl"
         
+        # STL 算法也需要至少 2 个完整周期，自动调整周期
+        min_data_for_stl = 2 * period
+        if algorithm == "stl" and len(series) < min_data_for_stl:
+            # 自动调整周期，确保数据量足够
+            max_period = len(series) // 2
+            if max_period >= 2:
+                old_period = period
+                period = max_period
+                logger.info(f"数据量({len(series)})不足以使用周期{old_period}进行STL分解，自动调整周期为{period}")
+            else:
+                raise ValueError(f"数据点数量({len(series)})太少，无法进行趋势分解，至少需要4个数据点")
+        
         logger.info(f"使用算法: {algorithm}, 周期: {period}, 数据点: {len(series)}")
         
         # 执行分解
         if algorithm == "stl":
-            results = trend_service.decompose_trend_stl(series, period, robust=True)
+            decomposition_results = trend_service.decompose_trend_stl(series, period, robust=True)
         elif algorithm == "classical":
-            results = trend_service.decompose_trend_classical(
+            decomposition_results = trend_service.decompose_trend_classical(
                 series, period, model=request.decomposition_model
             )
         else:
             raise ValueError(f"不支持的算法: {algorithm}")
         
-        # 生成通俗易懂的摘要（已使用中文字段名）
-        readable_summary = trend_service.generate_readable_summary(results, "decomposition")
-        results["通俗摘要"] = readable_summary
+        # 分析数据特征
+        data_characteristics = trend_service.analyze_data_characteristics(series)
         
-        # 返回中文字段名的响应
-        return {
-            "是否成功": True,
-            "任务ID": task_id,
-            "消息": readable_summary.get("标题", f"趋势分解完成，使用{algorithm.upper()}算法"),
-            "时间戳": datetime.utcnow().isoformat(),
-            "元数据": {
-                "检测周期": period,
-                "选择算法": algorithm,
-                "数据点数": len(series),
-                "分解模型": request.decomposition_model,
-                "算法自动调整": algorithm != request.algorithm
-            },
-            "分解结果": results
+        # 生成通俗易懂的摘要
+        readable_summary = trend_service.generate_readable_summary(decomposition_results, "decomposition")
+        
+        # 构建原始结果（用于格式化器）
+        raw_result = {
+            "数据特征": data_characteristics,
+            "分解结果": decomposition_results,
+            "通俗摘要": readable_summary,
+            "分析类型": "decomposition",
+            "使用算法": algorithm.upper(),
+            "使用周期": period
         }
+        
+        # 使用统一格式化器转换输出
+        unified_output = unified_formatter.format_trend_decomposition(raw_result)
+        
+        # 返回统一格式的响应
+        return unified_output
         
     except ValueError as e:
         logger.warning(f"趋势分解参数错误: {e}")
@@ -226,7 +236,6 @@ async def trend_detection(request: TrendDetectionRequest) -> Dict[str, Any]:
     """
     try:
         logger.info("收到趋势检测请求")
-        task_id = generate_task_id()
         
         # 准备数据
         data_points = [point.model_dump() for point in request.data]
@@ -262,34 +271,36 @@ async def trend_detection(request: TrendDetectionRequest) -> Dict[str, Any]:
         
         # 执行检测
         if method == "mann_kendall":
-            results = trend_service.detect_trend_mann_kendall(
+            detection_results = trend_service.detect_trend_mann_kendall(
                 series, alpha=1 - request.confidence_level
             )
         elif method == "linear_regression":
-            results = trend_service.detect_trend_linear_regression(
+            detection_results = trend_service.detect_trend_linear_regression(
                 series, confidence_level=request.confidence_level
             )
         else:
             raise ValueError(f"不支持的检测方法: {method}")
         
-        # 生成通俗易懂的摘要（已使用中文字段名）
-        readable_summary = trend_service.generate_readable_summary(results, "detection")
-        results["通俗摘要"] = readable_summary
+        # 分析数据特征
+        data_characteristics = trend_service.analyze_data_characteristics(series)
         
-        # 返回中文字段名的响应
-        return {
-            "是否成功": True,
-            "任务ID": task_id,
-            "消息": readable_summary.get("标题", "趋势检测完成"),
-            "时间戳": datetime.utcnow().isoformat(),
-            "元数据": {
-                "使用方法": results.get("检测方法", method),
-                "数据点数": len(series),
-                "置信水平": request.confidence_level,
-                "季节性调整": request.include_seasonal_adjustment
-            },
-            "检测结果": results
+        # 生成通俗易懂的摘要
+        readable_summary = trend_service.generate_readable_summary(detection_results, "detection")
+        
+        # 构建原始结果（用于格式化器）
+        raw_result = {
+            "数据特征": data_characteristics,
+            "检测结果": detection_results,
+            "通俗摘要": readable_summary,
+            "分析类型": "detection",
+            "使用方法": detection_results.get("检测方法", method)
         }
+        
+        # 使用统一格式化器转换输出
+        unified_output = unified_formatter.format_trend_detection(raw_result)
+        
+        # 返回统一格式的响应
+        return unified_output
         
     except ValueError as e:
         logger.warning(f"趋势检测参数错误: {e}")
