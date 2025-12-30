@@ -78,7 +78,12 @@ def register_all_algorithms(nl2sql_client=None):
         from algorithm.kmeans.extractor import KMeansExtractor
         from algorithm.kmeans.processor import KMeansProcessor
         algorithm_registry.register_algorithm(KMeansExtractor(nl2sql_client), KMeansProcessor())
-        
+
+        # 分类算法
+        from algorithm.classification.extractor import ClassificationExtractor
+        from algorithm.classification.processor import ClassificationProcessor
+        algorithm_registry.register_algorithm(ClassificationExtractor(nl2sql_client), ClassificationProcessor())
+
         # DBSCAN异常检测算法
         from algorithm.dbscan.extractor import DBSCANExtractor
         from algorithm.dbscan.processor import DBSCANProcessor

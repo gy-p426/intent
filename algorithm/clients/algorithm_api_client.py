@@ -408,7 +408,20 @@ class AlgorithmAPIClient:
             "config": config
         }
         return await self.call_algorithm_api("classification", "/classification/predict", "POST", payload)
-    
+
+    async def query_tabnet_async_task_status(self, algorithm_type: str, task_id: str) -> Dict[str, Any]:
+        """
+        查询异步任务状态 (对应 GET /classification/task/{task_id})
+        """
+        # 根据算法类型构建 endpoint
+        if algorithm_type == "classification":
+            endpoint = f"/classification/task/{task_id}"
+        else:
+            # 默认 fallback
+            endpoint = f"/task/{task_id}"
+
+        return await self.call_algorithm_api(algorithm_type, endpoint, "GET")
+
     async def call_prediction_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
         """
         调用预测算法API

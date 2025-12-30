@@ -796,7 +796,10 @@ class DataProcessor(IDataProcessor):
             #     return AlgorithmType.IFOREST
             elif "聚类" in algorithm_config.name or "cluster" in algorithm_name_lower:
                 return AlgorithmType.CLUSTER
-            elif "分类" in algorithm_config.name or "classif" in algorithm_name_lower:
+            elif ("分类" in algorithm_config.name or
+                  "classif" in algorithm_name_lower or
+                  "xgboost" in algorithm_name_lower or
+                  "tabnet" in algorithm_name_lower):
                 return AlgorithmType.CLASSIFY
             elif "预测" in algorithm_config.name or "forecast" in algorithm_name_lower or "predict" in algorithm_name_lower:
                 return AlgorithmType.PREDICT

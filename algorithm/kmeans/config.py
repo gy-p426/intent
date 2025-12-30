@@ -47,7 +47,29 @@ KMEANS_CONFIG = {
     }
 }
 
-# 自己写一下响应参数
+# 响应结果结构定义
 KMEANS_RESULT = {
-
+    "status": {
+        "type": "string",
+        "description": "执行状态 (success/error)"
+    },
+    "k_used": {
+        "type": "integer",
+        "description": "实际使用的聚类簇数"
+    },
+    "results": {
+        "type": "array",
+        "description": "聚类结果列表",
+        "item_type": "object",
+        "properties": {
+            "uid": {
+                "type": "string",
+                "description": "数据点唯一标识ID"
+            },
+            "cluster_id": {
+                "type": "integer",
+                "description": "所属簇的ID (从0开始)"
+            }
+        }
+    }
 }

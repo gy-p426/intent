@@ -130,55 +130,75 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                 status="error",
                 message=f"聚类算法执行失败: {str(e)}"
             )
-    
+
     async def execute_classification(
-        self, 
-        request: AlgorithmExecutionRequest
+            self,
+            request: AlgorithmExecutionRequest
     ) -> AlgorithmExecutionResponse:
         """
-        执行分类算法
-        
+        执行分类算法 (支持同步/异步双模式)
+
         Args:
-            request: 算法执行请求
-            
+            request: 算法执行请求 (包含 data_rows 和 data_sets)
+
         Returns:
-            AlgorithmExecutionResponse: 执行响应(可能包含task_id)
+            AlgorithmExecutionResponse: 执行响应
         """
         logger.info("开始执行分类算法")
-        
+        logger.info(
+            f"训练数据: {len(request.data_sets) if request.data_sets else 0}行, 预测数据: {len(request.data_rows)}行")
+
         try:
-            # 使用新的算法API客户端
+            # 1. 调用 API Client (传入训练集 data_sets)
             result_data = await self.algorithm_client.call_classification_api(
                 data_rows=request.data_rows,
-                data_sets=request.data_sets or [],
+                data_sets=request.data_sets or [],  # 确保列表不为None
                 config=request.config
             )
-            
-            # 检查是否返回了task_id（异步处理）
-            if "task_id" in result_data:
-                task_id = result_data["task_id"]
-                # 在任务管理器中创建任务记录
-                await self.task_manager.create_task(task_id, AlgorithmType.CLASSIFY)
-                
+
+            # 2. 检查是否为异步任务 (返回了 task_id 或 status=pending)
+            if result_data.get("status") == "pending" or "task_id" in result_data:
+                task_id = result_data.get("task_id")
+                logger.info(f"分类算法进入异步模式, Task ID: {task_id}")
+
+                # 在任务管理器中注册任务 (以便 Service 层后续轮询)
+                if self.task_manager and task_id:
+                    await self.task_manager.create_task(task_id, AlgorithmType.CLASSIFY)
+
                 return AlgorithmExecutionResponse(
                     task_id=task_id,
                     status="processing",
-                    message="分类算法异步处理中"
+                    message=result_data.get("message", "数据量较大，正在后台训练模型...")
                 )
-            else:
-                # 同步返回结果
+
+            # 3. 处理同步结果
+            elif result_data.get("status") == "success":
+                logger.info("分类算法同步执行成功")
                 return AlgorithmExecutionResponse(
                     result=result_data,
                     status="success",
-                    message="分类算法执行成功"
+                    message="分类预测执行成功",
+                    readable_result=None  # 👈 保持为None，触发大模型自动分析
                 )
-                
+
+            # 4. 处理错误
+            else:
+                error_msg = result_data.get("message", "未知错误")
+                logger.error(f"分类算法返回错误状态: {result_data}")
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="error",
+                    message=f"分类算法执行失败: {error_msg}",
+                    readable_result=None
+                )
+
         except Exception as e:
-            logger.error(f"分类算法执行失败: {str(e)}")
+            logger.error(f"分类算法执行异常: {str(e)}")
             return AlgorithmExecutionResponse(
                 result={},
                 status="error",
-                message=f"分类算法执行失败: {str(e)}"
+                message=f"分类算法执行异常: {str(e)}",
+                readable_result=None
             )
     
     async def execute_anomaly_detection(
