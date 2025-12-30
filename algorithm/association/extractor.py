@@ -59,6 +59,7 @@ class AssociationExtractor(BaseAlgorithmExtractor):
 2. 列名必须与数据库schema中的column_name完全一致
 3. 不要创造不存在的列名
 4. 优先选择有注释说明的列
+6. normalized_query中一定写明返回的数据列注释（即id_column+feature_columns），并且标名返回几列数据，否则无法正确解析，如"获取销售日期、销售额，共2列数据"，！！！
 
 输出JSON格式(严格遵守)：
 {{
@@ -68,7 +69,7 @@ class AssociationExtractor(BaseAlgorithmExtractor):
     "significance_level": 0.05
   }},
   "required_columns": ["第一列实际列名", "第二列实际列名"],
-  "normalized_query": "分析[列1]与[列2]的关联关系"
+  "normalized_query": "查询[列1]与[列2]，共2列数据"
 }}"""
         
         user_prompt = f"""用户问题: {question}

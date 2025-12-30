@@ -367,7 +367,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                         logger.info("开始算法执行")
                         algorithm_type_chinese = ALGORITHM_TYPE_CHINESE_MAP.get(algorithm_type, algorithm_type.value)
                         yield AlgorithmResponse(
-                            step=StreamingStep.ALGORITHM_EXECUTION,
+                                step=StreamingStep.ALGORITHM_EXECUTION,
                             status="processing",
                             data={"message": f"正在执行{algorithm_type_chinese}算法..."},
                             timestamp=datetime.utcnow()
@@ -521,7 +521,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                         "sql_execution_time": nl2sql_response.execution_time_ms
                                     },
                                     "readable_result": readable_result,
-                                    "message": f"{algorithm_type_chinese}算法执行完成"
+                                    "message": f"{algorithm_type_chinese}算法分析结果如下"
                                 }
                                 
                                 logger.info(f"完整算法流程执行完成: {algorithm_type.value}")

@@ -48,13 +48,54 @@ class AssociationProcessor(BaseAlgorithmProcessor):
             if not column1_name or not column2_name:
                 raise ValueError("缺少必需的列名参数")
             
+            # 🔥 修复：自动检测实际的列名
+            # 获取SQL结果中的实际列名
+            actual_columns = list(sql_result[0].keys()) if sql_result else []
+            logger.info(f"SQL结果中的实际列名: {actual_columns}")
+            logger.info(f"参数映射中的列名: column1={column1_name}, column2={column2_name}")
+            
+            # 尝试匹配列名（优先使用参数映射中的列名，如果不存在则尝试匹配）
+            actual_column1 = column1_name
+            actual_column2 = column2_name
+            
+            # 如果参数映射中的列名在SQL结果中不存在，尝试智能匹配
+            if column1_name not in actual_columns:
+                logger.warning(f"列名 '{column1_name}' 在SQL结果中不存在，尝试智能匹配")
+                # 简单的匹配策略：查找包含关键词的列名
+                for col in actual_columns:
+                    if any(keyword in col for keyword in ['绩效', 'performance', '总分', 'total']):
+                        actual_column1 = col
+                        logger.info(f"匹配到列名: {column1_name} -> {actual_column1}")
+                        break
+                else:
+                    # 如果没有匹配到，使用第一个列
+                    if actual_columns:
+                        actual_column1 = actual_columns[0]
+                        logger.warning(f"未找到匹配列名，使用第一列: {actual_column1}")
+            
+            if column2_name not in actual_columns:
+                logger.warning(f"列名 '{column2_name}' 在SQL结果中不存在，尝试智能匹配")
+                # 简单的匹配策略：查找包含关键词的列名
+                for col in actual_columns:
+                    if any(keyword in col for keyword in ['质量', 'quality', '评分', 'score']):
+                        actual_column2 = col
+                        logger.info(f"匹配到列名: {column2_name} -> {actual_column2}")
+                        break
+                else:
+                    # 如果没有匹配到，使用第二个列（如果存在）
+                    if len(actual_columns) > 1:
+                        actual_column2 = actual_columns[1]
+                        logger.warning(f"未找到匹配列名，使用第二列: {actual_column2}")
+                    elif len(actual_columns) == 1:
+                        raise ValueError("SQL结果只有一列，无法进行关联分析")
+            
             # 提取两列数据
             column1_values = []
             column2_values = []
             
             for row in sql_result:
-                val1 = row.get(column1_name)
-                val2 = row.get(column2_name)
+                val1 = row.get(actual_column1)
+                val2 = row.get(actual_column2)
                 
                 # 保留None值，后续处理器会清理
                 column1_values.append(val1)
@@ -71,11 +112,11 @@ class AssociationProcessor(BaseAlgorithmProcessor):
             config = {
                 "data": {
                     "column1": {
-                        "name": column1_name,
+                        "name": actual_column1,  # 使用实际的列名
                         "values": column1_values
                     },
                     "column2": {
-                        "name": column2_name,
+                        "name": actual_column2,  # 使用实际的列名
                         "values": column2_values
                     }
                 },
@@ -86,7 +127,7 @@ class AssociationProcessor(BaseAlgorithmProcessor):
             
             logger.info(
                 f"关联分析数据转换完成: "
-                f"{column1_name}({len(column1_values)}) vs {column2_name}({len(column2_values)}), "
+                f"{actual_column1}({len(column1_values)}) vs {actual_column2}({len(column2_values)}), "
                 f"α={significance_level}"
             )
             
