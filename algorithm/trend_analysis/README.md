@@ -7,6 +7,8 @@
 1. **趋势分解（Decomposition）**：将时间序列分解为趋势、季节性和残差三个组成部分
 2. **趋势检测（Detection）**：检测时间序列是否存在显著的上升或下降趋势
 
+> ⚠️ **当前版本说明**：从 2025-01-05 起，系统暂时禁用了趋势检测功能，所有趋势分析请求都将使用趋势分解（decomposition）。如需恢复趋势检测功能，请参考 `.kiro/steering/development-rules.md` 中的修改记录 #15。
+
 ## 架构说明
 
 本模块通过 `AlgorithmExecutor` 调用远程 `forecast_service` 微服务执行趋势分析。
@@ -51,7 +53,7 @@ FORECAST_SERVICE_URL=http://192.168.5.106:8100
 
 | 参数名 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| analysis_type | string | decomposition | 分析类型：`decomposition`（趋势分解）或 `detection`（趋势检测） |
+| analysis_type | string | decomposition | 分析类型：`decomposition`（趋势分解）或 `detection`（趋势检测）。**注意：当前版本强制使用 decomposition** |
 | period | integer | 自动检测 | 季节周期长度，如24（小时数据的日周期）、7（日数据的周周期） |
 | decomposition_model | string | additive | 分解模型类型：`additive`（加法模型）或 `multiplicative`（乘法模型） |
 | algorithm | string | auto | 分解算法：`auto`、`stl` 或 `classical` |

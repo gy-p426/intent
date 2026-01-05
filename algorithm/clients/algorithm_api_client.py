@@ -501,9 +501,11 @@ class AlgorithmAPIClient:
         Returns:
             Dict[str, Any]: 趋势分析结果
         """
-        analysis_type = config.get('analysis_type', 'decomposition')
+        # 强制使用趋势分解，忽略 detection 请求
+        # 原逻辑: analysis_type = config.get('analysis_type', 'decomposition')
+        analysis_type = 'decomposition'
         
-        # 根据分析类型选择端点
+        # 根据分析类型选择端点（目前只使用 decomposition）
         if analysis_type == 'decomposition':
             endpoint = "/api/v1/trend/decomposition"
         elif analysis_type == 'detection':
