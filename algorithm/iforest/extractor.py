@@ -51,18 +51,18 @@ IFOREST孤立森林算法异常分析要求：
 1. id_column的值必须是数据库中实际存在的列注释（如"销售日期"、"sale_date"等）
 2. feature_columns的值必须是数据库中实际存在的数值型列名列表
 3. 不要创造不存在的列名
-4. required_columns中一定写明列注释，一定与normalized_query的使用的名称相同，如"required_columns": ["日期", "销售额"],"normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，共2列数据"
+4. required_columns中一定写明列注释，一定与normalized_query的使用的名称相同，如"required_columns": ["日期", "销售额"],"normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，返回日期、销售额共2列数据"
 5. 优先选择有注释说明的列，这样更容易理解业务含义
-6. normalized_query中一定写明返回的数据列注释（即id_column+feature_columns），并且标名返回几列数据，否则无法正确解析，如"获取销售日期、销售额，共2列数据"！！！
+6. normalized_query中一定写明返回的数据列注释（即id_column+feature_columns），并且标名返回几列数据，否则无法正确解析，如"获取销售日期、销售额，返回日期、销售额共2列数据"！！！
 
 输出JSON格式（严格遵守）：
 {{
   "parameter_mapping": {{
     "id_column": "销售日期",
-    "feature_columns": ["销售笔数", "销售额",...],
+    "feature_columns": ["销售笔数","销售额",...],
   }},
-  "required_columns": ["所有需要的实际列注释"],
-  "normalized_query": "获取A分公司不同销售日期的所有销售笔数、销售额"
+  "required_columns": ["销售日期","销售笔数","销售额"],
+  "normalized_query": "获取A分公司不同销售日期的所有销售笔数、销售额，返回销售日期、销售笔数、销售额共3列数据"
 }}"""
 
         user_prompt = f"""用户问题: {question}

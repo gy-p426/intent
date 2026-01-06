@@ -70,8 +70,8 @@ class MultivariateForecastExtractor(BaseAlgorithmExtractor):
 3. feature_columns的值必须是数据库中实际存在的数值型列名列表
 4. 不要创造不存在的列名
 5. 优先选择有注释说明的列
-6. normalized_query中一定写明返回的数据列注释（即timestamp_column+target_column+feature_columns），并且标名返回几列数据，否则无法正确解析，如"获取日期、销售额、温度、湿度，共4列数据"！！！
-7. required_columns中一定写明列注释，一定与normalized_query的使用的名称相同，如"required_columns": ["日期", "销售额"],"normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，共2列数据"
+6. normalized_query中一定写明返回的数据列注释（即timestamp_column+target_column+feature_columns），并且标名返回几列数据，否则无法正确解析，如"获取日期、销售额、温度、湿度，返回日期、销售额、温度、湿度共4列数据"！！！
+7. required_columns中一定写明列注释，一定与normalized_query的使用的名称相同，如"required_columns": ["日期", "销售额"],"normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，返回日期、销售额共2列数据"
 输出JSON格式（严格遵守）：
 {{
   "parameter_mapping": {{
@@ -83,7 +83,7 @@ class MultivariateForecastExtractor(BaseAlgorithmExtractor):
     "model_name": null
   }},
   "required_columns": ["日期", "销售额", "温度", "湿度"],
-  "normalized_query": "获取历史销售数据的日期、销售额、温度、湿度，共4列数据"
+  "normalized_query": "获取历史销售数据的日期、销售额、温度、湿度，返回日期、销售额、温度、湿度共4列数据"
 }}"""
         
         user_prompt = f"""用户问题: {question}

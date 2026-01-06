@@ -65,7 +65,7 @@ class DTWExtractor(BaseAlgorithmExtractor):
 3. time_series1和time_series2必须是数值型列(标记为[数值型]的列)
 4. time_series1和time_series2不能是同一列
 5. required_columns中一定写明列注释，一定与normalized_query的使用的名称相同，如"required_columns": ["日期", "销售额"],"normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，共2列数据"
-6. normalized_query中一定写明返回的数据列注释（即timestamp_column+value_column），并且标名返回几列数据，否则无法正确解析，如"获取日期、销售额，共2列数据"！！！
+6. normalized_query中一定写明返回的数据列注释（即timestamp_column+value_column），并且标名返回几列数据，否则无法正确解析，如"获取日期、销售额，返回日期、销售额共2列数据"！！！
 
 常见应用场景识别：
 - "温度和湿度" → time_series1=temperature, time_series2=humidity
@@ -76,16 +76,16 @@ class DTWExtractor(BaseAlgorithmExtractor):
 输出JSON格式(严格遵守)：
 {{
   "parameter_mapping": {{
-    "time_column": "数据库中的时间列名",
-    "time_series1": "数据库中的数值列名1",
-    "time_series2": "数据库中的数值列名2",
+    "time_column": "数据库中的时间列注释",
+    "time_series1": "数据库中的数值列注释1",
+    "time_series2": "数据库中的数值列注释2",
     "window_size": 正整数或null,
     "distance_metric": "euclidean"或"manhattan"或"cosine"或null,
     "normalize": true或false或null,
     "step_pattern": "symmetric2"或"symmetric1"或"asymmetric"或null
   }},
   "required_columns": ["time_column的值", "time_series1的值", "time_series2的值"],
-  "normalized_query": "查询"
+  "normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，返回日期、销售额共2列数据"
 }}"""
         
         user_prompt = f"""用户问题: {question}

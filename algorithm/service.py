@@ -486,7 +486,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                 # 构建增强的算法执行响应
                                 algorithm_type_chinese = ALGORITHM_TYPE_CHINESE_MAP.get(algorithm_type, algorithm_type.value)
                                 algorithm_execution_data = {
-                                    "algorithm_result": algorithm_result,
+                                    # "algorithm_result": algorithm_result,
                                     "message": f"{algorithm_type_chinese}算法执行完成",
                                     "execution_summary": self._generate_algorithm_summary(algorithm_type, algorithm_result)
                                 }
@@ -513,6 +513,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                     "algorithm_type": algorithm_type.value,
                                     "algorithm_type_chinese": algorithm_type_chinese,
                                     # "algorithm_result": algorithm_result,
+                                    "algorithm_result": algorithm_result,
                                     "sql_statement": nl2sql_response.sql_statement,
                                     "normalized_query": parameters.normalized_query,
                                     "execution_summary": self._generate_algorithm_summary(algorithm_type, algorithm_result),
@@ -1121,7 +1122,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             if llm_analysis:
                 return {
                     "llm_analysis": llm_analysis,
-                    "technical_details": technical_details,
+                    # "technical_details": technical_details,
                     "analysis_source": "llm_enhanced"
                 }
             else:

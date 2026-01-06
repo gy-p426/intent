@@ -173,11 +173,11 @@ class AlgorithmResultAnalyzer:
                 raise ValueError("分析结果为空")
             
             # 长度检查
-            if len(cleaned_response) < 50:
-                logger.warning(f"分析结果过短: {len(cleaned_response)} 字符")
-            elif len(cleaned_response) > 1000:
-                logger.warning(f"分析结果过长: {len(cleaned_response)} 字符，将截取前1000字符")
-                cleaned_response = cleaned_response[:1000] + "..."
+            # if len(cleaned_response) < 50:
+            #     logger.warning(f"分析结果过短: {len(cleaned_response)} 字符")
+            # elif len(cleaned_response) > 1000:
+            #     logger.warning(f"分析结果过长: {len(cleaned_response)} 字符，将截取前1000字符")
+            #     cleaned_response = cleaned_response[:1000] + "..."
             
             return cleaned_response
             
