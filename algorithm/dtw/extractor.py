@@ -41,63 +41,59 @@ class DTWExtractor(BaseAlgorithmExtractor):
 
 重要:DTW算法用于比较表格中两列数值序列的相似度。
 
-数据格式说明：
-表格包含至少三列：
-1. 时间列（用于排序数据）
-2. 序列1的数值列
-3. 序列2的数值列
+数据格式说明,
+表格必须包含两列数值列,
+1. 序列1的数值列（必需）
+2. 序列2的数值列（必需）
 
-提取参数说明：
-1. time_column: 时间列注释（必需）,用于对数据排序
-2. time_series1: 数值列1的列注释(必需),数据将从该列提取
-3. time_series2: 数值列2的列注释(必需),数据将从该列提取
-4. window_size (可选): Sakoe-Chiba带约束窗口大小(正整数或null)
-5. distance_metric (可选): euclidean/manhattan/cosine(默认euclidean)
-6. normalize (可选): true/false(默认true)
-7. step_pattern (可选): symmetric1/symmetric2/asymmetric(默认symmetric2)
+提取参数说明,
+1. time_series1: 数值列1的列名(必需),数据将从该列提取
+2. time_series2: 数值列2的列名(必需),数据将从该列提取
+3. window_size (可选): Sakoe-Chiba带约束窗口大小(正整数或null)
+4. distance_metric (可选): euclidean/manhattan/cosine(默认euclidean)
+5. normalize (可选): true/false(默认true)
+6. step_pattern (可选): symmetric1/symmetric2/asymmetric(默认symmetric2)
 
-数据库可用列信息：
+数据库可用列信息,
 {schema_text}
 
-严格输出规则：
+严格输出规则,
 1. 所有列名必须是数据库中实际存在的列名
-2. time_column应选择时间、日期或序号类型的列
-3. time_series1和time_series2必须是数值型列(标记为[数值型]的列)
-4. time_series1和time_series2不能是同一列
-5. required_columns中一定写明列注释，一定与normalized_query的使用的名称相同，如"required_columns": ["日期", "销售额"],"normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，共2列数据"
-6. normalized_query中一定写明返回的数据列注释（即timestamp_column+value_column），并且标名返回几列数据，否则无法正确解析，如"获取日期、销售额，返回日期、销售额共2列数据"！！！
+2. time_series1和time_series2必须是数值型列(标记为[数值型]的列)
+3. time_series1和time_series2不能是同一列
+4. required_columns中必须包含time_series1和time_series2的列名
+5. normalized_query中必须写明返回的数据列名,并且必须标明"共2列数据"
 
-常见应用场景识别：
+常见应用场景识别,
 - "温度和湿度" → time_series1=temperature, time_series2=humidity
 - "实际值和预测值" → time_series1=actual_value, time_series2=predicted_value
 - "设备A和设备B" → time_series1=device_a_value, time_series2=device_b_value
 - "销量和库存" → time_series1=sales, time_series2=inventory
 
-输出JSON格式(严格遵守)：
+输出JSON格式(严格遵守),
 {{
   "parameter_mapping": {{
-    "time_column": "数据库中的时间列注释",
-    "time_series1": "数据库中的数值列注释1",
-    "time_series2": "数据库中的数值列注释2",
+    "time_series1": "数据库中的数值列名1",
+    "time_series2": "数据库中的数值列名2",
     "window_size": 正整数或null,
     "distance_metric": "euclidean"或"manhattan"或"cosine"或null,
     "normalize": true或false或null,
     "step_pattern": "symmetric2"或"symmetric1"或"asymmetric"或null
   }},
-  "required_columns": ["time_column的值", "time_series1的值", "time_series2的值"],
-  "normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，返回日期、销售额共2列数据"
+  "required_columns": ["time_series1的值", "time_series2的值"],
+  "normalized_query": "获取XXX的列名1、列名2,共2列数据"
 }}"""
         
         user_prompt = f"""用户问题: {question}
 
 请严格按照系统提示的规则分析用户需求,输出符合DTW相似度分析要求的JSON参数。
 
-关键要求：
+关键要求,
 1. 识别用户想要比较的两列数值(如温度vs湿度、实际vs预测)
-2. 确定时间列用于排序
-3. 确保time_series1和time_series2是不同的数值列
-4. 根据问题决定是否需要窗口约束和归一化
-5. 所有列名必须是数据库中实际存在的列
+2. 确保time_series1和time_series2是不同的数值列
+3. 根据问题决定是否需要窗口约束和归一化
+4. 所有列名必须是数据库中实际存在的列名
+5. normalized_query必须包含"共2列数据"的说明
 
 输出JSON格式的参数提取结果。"""
         
@@ -168,12 +164,6 @@ class DTWExtractor(BaseAlgorithmExtractor):
         """验证DTW算法参数"""
         validated = {}
         
-        # 验证time_column
-        time_column = parameters.get('time_column')
-        if not time_column:
-            raise ValueError("DTW算法需要指定time_column(时间列)")
-        validated['time_column'] = str(time_column)
-        
         # 验证time_series1
         time_series1 = parameters.get('time_series1')
         if not time_series1:
@@ -185,7 +175,6 @@ class DTWExtractor(BaseAlgorithmExtractor):
         if not time_series2:
             raise ValueError("DTW算法需要指定time_series2(数值列2)")  
         validated['time_series2'] = str(time_series2)
-
         
         # 确保两个数值列不同
         if time_series1 == time_series2:
