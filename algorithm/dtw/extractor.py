@@ -47,8 +47,8 @@ class DTWExtractor(BaseAlgorithmExtractor):
 2. 序列2的数值列（必需）
 
 提取参数说明,
-1. time_series1: 数值列1的列名(必需),数据将从该列提取
-2. time_series2: 数值列2的列名(必需),数据将从该列提取
+1. time_series1: 数值列1的列注释(必需),数据将从该列提取
+2. time_series2: 数值列2的列注释(必需),数据将从该列提取
 3. window_size (可选): Sakoe-Chiba带约束窗口大小(正整数或null)
 4. distance_metric (可选): euclidean/manhattan/cosine(默认euclidean)
 5. normalize (可选): true/false(默认true)
@@ -58,30 +58,30 @@ class DTWExtractor(BaseAlgorithmExtractor):
 {schema_text}
 
 严格输出规则,
-1. 所有列名必须是数据库中实际存在的列名
+1. 所有列注释必须是数据库中实际存在的列注释
 2. time_series1和time_series2必须是数值型列(标记为[数值型]的列)
 3. time_series1和time_series2不能是同一列
-4. required_columns中必须包含time_series1和time_series2的列名
-5. normalized_query中必须写明返回的数据列名,并且必须标明"共2列数据"
+4. required_columns中必须包含time_series1和time_series2的列注释，一定与normalized_query的使用的名称相同，如"required_columns": ["日期", "销售额"],"normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，返回日期、销售额共2列数据"
+5. normalized_query中必须写明返回的数据列注释（即time_series1+time_series2）,并且必须标明"返回XX、XX共2列数据"否则无法正确解析，如"获取日期、销售额，返回日期、销售额共2列数据"！！！
 
 常见应用场景识别,
-- "温度和湿度" → time_series1=temperature, time_series2=humidity
-- "实际值和预测值" → time_series1=actual_value, time_series2=predicted_value
-- "设备A和设备B" → time_series1=device_a_value, time_series2=device_b_value
-- "销量和库存" → time_series1=sales, time_series2=inventory
+- "温度和湿度" → time_series1=温度, time_series2=湿度
+- "实际值和预测值" → time_series1=实际值, time_series2=预测值
+- "设备A和设备B" → time_series1=设备A, time_series2=设备B
+- "销量和库存" → time_series1=销量, time_series2=库存
 
 输出JSON格式(严格遵守),
 {{
   "parameter_mapping": {{
-    "time_series1": "数据库中的数值列名1",
-    "time_series2": "数据库中的数值列名2",
+    "time_series1": "数据库中的数值列注释1",
+    "time_series2": "数据库中的数值列注释2",
     "window_size": 正整数或null,
     "distance_metric": "euclidean"或"manhattan"或"cosine"或null,
     "normalize": true或false或null,
     "step_pattern": "symmetric2"或"symmetric1"或"asymmetric"或null
   }},
   "required_columns": ["time_series1的值", "time_series2的值"],
-  "normalized_query": "获取XXX的列名1、列名2,共2列数据"
+  "normalized_query": "获取日期、销售额，返回日期、销售额共2列数据"
 }}"""
         
         user_prompt = f"""用户问题: {question}
@@ -93,7 +93,7 @@ class DTWExtractor(BaseAlgorithmExtractor):
 2. 确保time_series1和time_series2是不同的数值列
 3. 根据问题决定是否需要窗口约束和归一化
 4. 所有列名必须是数据库中实际存在的列名
-5. normalized_query必须包含"共2列数据"的说明
+5. normalized_query必须包含"返回XX、XX共2列数据"的说明
 
 输出JSON格式的参数提取结果。"""
         
