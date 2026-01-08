@@ -37,49 +37,74 @@ class AssociationExtractor(BaseAlgorithmExtractor):
         # 保存查询结果供后续使用
         self._last_query_db_result = query_db_result
         
-        system_prompt = f"""你是关联分析专家。根据用户问题和数据库信息,提取关联分析所需的两列数据。
+        system_prompt = f"""你是多元关联分析专家。根据用户问题和数据库信息,提取关联分析所需的列数据和分析模式。
 
 重要：你必须严格按照以下规则输出JSON,确保列名完全匹配数据库中的实际列名。
 
-关联分析要求：
-1. column1: 第一个变量的列名(必需)
-2. column2: 第二个变量的列名(必需)
-3. significance_level: 显著性水平(可选,默认0.05)
-
-分析方法会自动选择：
-- 两个分类变量 → 卡方检验
-- 两个数值变量 → 相关性分析(Pearson/Spearman)
-- 一个分类 + 一个数值 → 方差分析(ANOVA)
+多元关联分析支持三种模式：
+1. **bivariate（二元关联分析）**: 分析两个变量之间的关联关系
+   - 要求：恰好2列
+   - 方法：卡方检验/相关性分析/方差分析（自动选择）
+   
+2. **pairwise（多变量两两关联分析）**: 分析多个变量之间的两两关联关系
+   - 要求：至少3列
+   - 方法：互信息(MI)
+   - 适用：找出多个变量中哪些相互关联
+   
+3. **multivariate（多变量综合关联分析）**: 分析多个自变量与一个因变量的综合关联
+   - 要求：至少3列，第一列为因变量
+   - 方法：条件互信息(CMI) + 回归分析
+   - 适用：分析哪些因素影响某个目标变量
 
 数据库可用列信息：
 {schema_text}
 
-严格输出规则：
-1. column1 和 column2 必须是数据库中实际存在的列注释
-2. required_columns中一定写明要返回的列注释，一定与normalized_query的使用的名称相同，如"required_columns": ["日期", "销售额"],"normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，返回日期、销售额共2列数据"
-3. 不要创造不存在的列注释
-4. 优先选择有注释说明的列
-6. normalized_query中一定写明返回的数据列注释（即id_column+feature_columns），并且标名返回几列数据，否则无法正确解析，如"获取销售日期、销售额，返回日期、销售额共2列数据"，！！！
+参数提取规则：
+1. **columns**: 提取所有需要分析的列名（列表形式）
+   - 必须是数据库中实际存在的列注释
+   - 至少2列，可以是多列
+   - 对于multivariate模式，将因变量放在第一位
+   
+2. **analysis_mode**: 分析模式（可选，系统可自动推断）
+   - 如果用户明确表达了分析意图，则指定模式
+   - 如果不确定，可以不指定，系统会根据列数自动推断
+   
+3. **required_columns**: 需要查询的所有列注释（与columns相同）
+
+4. **normalized_query**: 规范化查询描述
+   - 必须写明返回的数据列注释
+   - 必须标明返回几列数据
+   - 格式示例："获取XX年xx月到xx年月期间的历史销售数据的日期、销售额、地区，返回日期、销售额、地区共3列数据"
+
+用户意图识别：
+- "分析A和B的关系" → bivariate模式，2列
+- "分析A、B、C之间的关联" → pairwise模式，3列
+- "分析哪些因素影响D" → multivariate模式，D为因变量（第一列），其他为自变量
+- "D受哪些因素影响" → multivariate模式，D为因变量（第一列）
 
 输出JSON格式(严格遵守)：
 {{
   "parameter_mapping": {{
-    "column1": "数据库中第一列的实际列名",
-    "column2": "数据库中第二列的实际列名",
-    "significance_level": 0.05
+    "columns": ["列注释1", "列注释2", "列注释3", ...],
+    "analysis_mode": "bivariate | pairwise | multivariate"  // 可选，不确定可省略
   }},
-  "required_columns": ["日期", "销售额"],
-  "normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额，返回日期、销售额共2列数据"
-}}"""
+  "required_columns": ["列注释1", "列注释2", "列注释3", ...],
+  "normalized_query": "获取...数据的列1、列2、列3，返回列1、列2、列3共N列数据"
+}}
+
+向后兼容性说明：
+- 如果用户使用旧的二元分析表达方式，提取2列并自动设置为bivariate模式
+- 系统会自动处理旧格式到新格式的转换"""
         
         user_prompt = f"""用户问题: {question}
 
-请严格按照系统提示的规则分析用户需求,输出符合关联分析要求的JSON参数。
+请严格按照系统提示的规则分析用户需求,输出符合多元关联分析要求的JSON参数。
 
 关键要求：
-1. 识别用户想要分析关联的两个变量
+1. 识别用户想要分析关联的所有变量（列名）
 2. 从数据库schema中找到对应的实际列注释
-3. 如果用户指定了显著性水平(如α=0.01),则设置significance_level
+3. 根据用户意图判断分析模式（如果明确的话）
+4. 对于multivariate模式，将因变量放在columns的第一位
 
 输出JSON格式的参数提取结果。"""
         
@@ -130,25 +155,60 @@ class AssociationExtractor(BaseAlgorithmExtractor):
             
             parameter_mapping = result.get('parameter_mapping', {})
             
-            # 确保column1和column2是字符串
-            if 'column1' in parameter_mapping:
-                parameter_mapping['column1'] = str(parameter_mapping['column1'])
+            # 处理新格式：columns列表
+            if 'columns' in parameter_mapping:
+                columns = parameter_mapping['columns']
+                
+                # 确保columns是列表
+                if not isinstance(columns, list):
+                    columns = [columns]
+                
+                # 确保所有列名都是字符串
+                columns = [str(col) for col in columns]
+                parameter_mapping['columns'] = columns
+                
+                # 处理analysis_mode
+                analysis_mode = parameter_mapping.get('analysis_mode')
+                if analysis_mode:
+                    # 确保是字符串且是有效值
+                    analysis_mode = str(analysis_mode).lower()
+                    if analysis_mode not in ['bivariate', 'pairwise', 'multivariate']:
+                        logger.warning(f"无效的analysis_mode: {analysis_mode}，将根据列数自动推断")
+                        analysis_mode = None
+                
+                # 如果没有指定analysis_mode，根据列数自动推断
+                if not analysis_mode:
+                    if len(columns) == 2:
+                        analysis_mode = 'bivariate'
+                        logger.info(f"根据列数(2)自动推断为bivariate模式")
+                    elif len(columns) >= 3:
+                        # 默认使用pairwise模式，除非用户明确表达了因变量意图
+                        analysis_mode = 'pairwise'
+                        logger.info(f"根据列数({len(columns)})自动推断为pairwise模式")
+                
+                parameter_mapping['analysis_mode'] = analysis_mode
             
-            if 'column2' in parameter_mapping:
-                parameter_mapping['column2'] = str(parameter_mapping['column2'])
+            # 处理旧格式：column1和column2（向后兼容）
+            elif 'column1' in parameter_mapping and 'column2' in parameter_mapping:
+                logger.info("检测到旧格式参数，自动转换为新格式")
+                
+                column1 = str(parameter_mapping['column1'])
+                column2 = str(parameter_mapping['column2'])
+                
+                # 转换为新格式
+                parameter_mapping['columns'] = [column1, column2]
+                parameter_mapping['analysis_mode'] = 'bivariate'
+                
+                # 保留旧字段以保持兼容性
+                parameter_mapping['column1'] = column1
+                parameter_mapping['column2'] = column2
+                
+                logger.info(f"旧格式已转换: column1={column1}, column2={column2} -> columns=[{column1}, {column2}], mode=bivariate")
             
-            # 处理significance_level
-            if 'significance_level' in parameter_mapping:
-                sig_level = parameter_mapping['significance_level']
-                if isinstance(sig_level, str):
-                    try:
-                        parameter_mapping['significance_level'] = float(sig_level)
-                    except ValueError:
-                        parameter_mapping['significance_level'] = 0.05
-                elif sig_level is None or sig_level == '':
-                    parameter_mapping['significance_level'] = 0.05
             else:
-                parameter_mapping['significance_level'] = 0.05
+                raise ValueError("参数映射中既没有'columns'也没有'column1/column2'")
+            
+
             
             result['parameter_mapping'] = parameter_mapping
             return result
@@ -161,36 +221,72 @@ class AssociationExtractor(BaseAlgorithmExtractor):
         """验证关联分析参数"""
         validated = {}
         
-        # 验证column1
-        column1 = parameters.get('column1')
-        if not column1:
-            raise ValueError("关联分析需要指定第一列(column1)")
-        validated['column1'] = str(column1)
+        # 验证columns列表
+        columns = parameters.get('columns')
+        if not columns:
+            # 尝试从旧格式获取（向后兼容）
+            column1 = parameters.get('column1')
+            column2 = parameters.get('column2')
+            if column1 and column2:
+                columns = [column1, column2]
+                logger.info("从旧格式(column1/column2)获取列名")
+            else:
+                raise ValueError("关联分析需要指定列名(columns)或使用旧格式(column1/column2)")
         
-        # 验证column2
-        column2 = parameters.get('column2')
-        if not column2:
-            raise ValueError("关联分析需要指定第二列(column2)")
-        validated['column2'] = str(column2)
+        # 确保columns是列表
+        if not isinstance(columns, list):
+            columns = [columns]
         
-        # 验证两列不能相同
-        if validated['column1'] == validated['column2']:
-            raise ValueError("两列不能是同一列")
+        # 验证列数至少为2
+        if len(columns) < 2:
+            raise ValueError(f"关联分析至少需要2列，当前只有{len(columns)}列")
         
-        # 验证显著性水平
-        sig_level = parameters.get('significance_level', 0.05)
-        if sig_level is not None:
-            try:
-                sig_level = float(sig_level)
-                if not 0.001 <= sig_level <= 0.5:
-                    raise ValueError("显著性水平必须在0.001到0.5之间")
-                validated['significance_level'] = sig_level
-            except (ValueError, TypeError):
-                raise ValueError("显著性水平必须是有效的浮点数")
-        else:
-            validated['significance_level'] = 0.05
+        # 确保所有列名都是字符串
+        columns = [str(col) for col in columns]
         
-        logger.info(f"关联分析参数验证通过: column1={validated['column1']}, column2={validated['column2']}, α={validated['significance_level']}")
+        # 验证列名不重复
+        if len(columns) != len(set(columns)):
+            duplicates = [col for col in columns if columns.count(col) > 1]
+            raise ValueError(f"列名不能重复，发现重复的列名: {set(duplicates)}")
+        
+        validated['columns'] = columns
+        
+        # 验证analysis_mode
+        analysis_mode = parameters.get('analysis_mode')
+        if not analysis_mode:
+            # 根据列数自动推断
+            if len(columns) == 2:
+                analysis_mode = 'bivariate'
+            elif len(columns) >= 3:
+                analysis_mode = 'pairwise'
+            logger.info(f"未指定analysis_mode，根据列数自动推断为: {analysis_mode}")
+        
+        # 验证analysis_mode是有效值
+        valid_modes = ['bivariate', 'pairwise', 'multivariate']
+        if analysis_mode not in valid_modes:
+            raise ValueError(f"无效的analysis_mode: {analysis_mode}，有效值为: {valid_modes}")
+        
+        # 根据analysis_mode验证列数要求
+        if analysis_mode == 'bivariate':
+            if len(columns) != 2:
+                raise ValueError(f"bivariate模式要求恰好2列，当前有{len(columns)}列")
+        elif analysis_mode in ['pairwise', 'multivariate']:
+            if len(columns) < 3:
+                raise ValueError(f"{analysis_mode}模式至少需要3列，当前只有{len(columns)}列")
+        
+        validated['analysis_mode'] = analysis_mode
+        
+
+        
+        # 保留旧格式字段（向后兼容）
+        if len(columns) == 2:
+            validated['column1'] = columns[0]
+            validated['column2'] = columns[1]
+        
+        logger.info(
+            f"关联分析参数验证通过: columns={columns}, "
+            f"mode={analysis_mode}"
+        )
         
         return validated
     

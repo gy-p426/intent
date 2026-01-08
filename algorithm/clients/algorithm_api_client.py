@@ -521,7 +521,12 @@ class AlgorithmAPIClient:
     
     async def call_association_api(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        调用关联分析API
+        调用关联分析API（支持三种模式的路由）
+        
+        根据analysis_mode参数路由到不同的API端点：
+        - bivariate: /api/v1/association/bivariate (二元关联分析)
+        - pairwise: /api/v1/association/pairwise (多变量两两关联)
+        - multivariate: /api/v1/association/multivariate (多变量综合关联)
         
         Args:
             config: 关联分析配置，包含data和options
@@ -529,19 +534,28 @@ class AlgorithmAPIClient:
         Returns:
             Dict[str, Any]: 关联分析结果
         """
-        endpoint = "/api/v1/association/analyze"
+        # 获取分析模式
+        options = config.get('options', {})
+        analysis_mode = options.get('analysis_mode', 'bivariate')
         
-        # config已经包含完整的请求格式：
-        # {
-        #   "data": {
-        #     "column1": {"name": "...", "values": [...]},
-        #     "column2": {"name": "...", "values": [...]}
-        #   },
-        #   "options": {
-        #     "significance_level": 0.05
-        #   }
-        # }
-        payload = config
+        # 根据analysis_mode选择端点
+        endpoint_mapping = {
+            'bivariate': '/api/v1/association/bivariate',
+            'pairwise': '/api/v1/association/pairwise',
+            'multivariate': '/api/v1/association/multivariate'
+        }
+        
+        endpoint = endpoint_mapping.get(analysis_mode)
+        if not endpoint:
+            raise ValueError(f"不支持的分析模式: {analysis_mode}")
+        
+        logger.info(f"关联分析路由: analysis_mode={analysis_mode} -> {endpoint}")
+        
+        # 构建请求payload（只包含data数组，不包含options）
+        payload = {
+            "data": config.get('data', [])
+        }
+        
         return await self.call_algorithm_api("association", endpoint, "POST", payload)
     
     async def call_univariate_forecast_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
