@@ -9,7 +9,8 @@ huggingface_hub==0.19.4
 
 # LLM Integration (Volcengine Ark Runtime)
 # 注意: 如果安装失败，可以注释掉这行，系统会自动使用模拟客户端
-"volcengine-python-sdk[ark]"
+volcengine-python-sdk[ark]==4.0.42
+volcengine==1.0.208
 
 # Service Discovery
 nacos-sdk-python==3.0.0
@@ -20,6 +21,9 @@ python-dotenv==1.0.0
 
 # Utilities
 numpy==1.24.3
+
+# Browser Automation
+DrissionPage==4.1.1.2
 
 # Database
 aiomysql==0.2.0
