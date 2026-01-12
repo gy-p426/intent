@@ -85,11 +85,11 @@ class AssociationExtractor(BaseAlgorithmExtractor):
 输出JSON格式(严格遵守)：
 {{
   "parameter_mapping": {{
-    "columns": ["列注释1", "列注释2", "列注释3", ...],
-    "analysis_mode": "bivariate | pairwise | multivariate"  // 可选，不确定可省略
+    "columns": ["年龄", "学历", "工作年限", "薪资"],
+    "analysis_mode": "pairwise"  // 可选，不确定可省略
   }},
-  "required_columns": ["列注释1", "列注释2", "列注释3", ...],
-  "normalized_query": "获取...数据的列1、列2、列3，返回列1、列2、列3共N列数据"
+  "required_columns": ["年龄", "学历", "工作年限", "薪资"],
+  "normalized_query": "获取员工信息的年龄、学历、工作年限、薪资，返回年龄、学历、工作年限、薪资共4列数据"
 }}
 
 严格输出规则：
@@ -97,22 +97,18 @@ class AssociationExtractor(BaseAlgorithmExtractor):
    - 必须从上面提供的数据库可用列信息中选择
    - 不要创造不存在的列注释
    - 优先选择有注释说明的列
-
 2. **required_columns必须与columns完全一致**
    - required_columns中一定写明要返回的列注释
    - 必须与normalized_query中使用的名称相同
    - 示例：
      - "required_columns": ["日期", "销售额", "地区"]
      - "normalized_query": "获取XX年xx月到xx年月期间的历史销售数据的日期、销售额、地区，返回日期、销售额、地区共3列数据"
-
 3. **normalized_query必须明确说明返回的列**
    - 必须写明返回的数据列注释（即columns中的所有列）
    - 必须标明返回几列数据
-   - 格式：获取[数据描述]的[列1]、[列2]、[列3]，返回[列1]、[列2]、[列3]共N列数据
-   - 示例：
+   - 格式示例：
      - "获取2023年1月到2023年12月期间的销售数据的日期、销售额，返回日期、销售额共2列数据"
      - "获取员工信息的年龄、学历、工作年限、薪资，返回年龄、学历、工作年限、薪资共4列数据"
-
 4. **列注释的一致性**
    - columns、required_columns、normalized_query中的列名必须完全一致
    - 都使用列注释，不使用列的英文名称
