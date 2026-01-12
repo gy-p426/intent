@@ -90,6 +90,19 @@ async def lifespan(app):
         # 初始化各个组件
         logger.info("初始化任务管理器...")
         task_manager = TaskManager()
+        
+        # 先初始化 NL2SQL 客户端和参数提取器（会注册算法）
+        logger.info("初始化NL2SQL客户端...")
+        nl2sql_client = NL2SQLClient(
+            base_url=settings.nl2sql_base_url,
+            timeout=settings.nl2sql_timeout
+        )
+        logger.info(f"[main.py] 创建的 NL2SQLClient: {nl2sql_client}, base_url: {settings.nl2sql_base_url}")
+        logger.info("初始化参数提取器...")
+        parameter_extractor = ParameterExtractor(llm_client, config_manager, nl2sql_client)
+        logger.info(f"[main.py] 参数提取器初始化完成")
+        
+        # 然后初始化其他组件（会使用已注册的算法）
         logger.info("初始化数据处理器...")
         data_processor = DataProcessor()
         logger.info("初始化流式处理器...")
@@ -97,13 +110,6 @@ async def lifespan(app):
         
         logger.info("初始化算法路由器...")
         algorithm_router = AlgorithmRouter(intent_service, config_manager)
-        logger.info("初始化参数提取器...")
-        parameter_extractor = ParameterExtractor(llm_client, config_manager)
-        logger.info("初始化NL2SQL客户端...")
-        nl2sql_client = NL2SQLClient(
-            base_url=settings.nl2sql_base_url,
-            timeout=settings.nl2sql_timeout
-        )
         logger.info("初始化算法执行器...")
         algorithm_executor = AlgorithmExecutor(
             task_manager=task_manager

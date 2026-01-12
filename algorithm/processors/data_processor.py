@@ -37,10 +37,10 @@ class DataProcessor(IDataProcessor):
             'type_conversions': {}
         }
         
-        # 初始化算法注册中心
-        from algorithm.base.registry import algorithm_registry, register_all_algorithms
-        register_all_algorithms()
+        # 使用已经初始化的算法注册中心（不要重新注册，避免覆盖）
+        from algorithm.base.registry import algorithm_registry
         self.algorithm_registry = algorithm_registry
+        logger.info("DataProcessor 使用已初始化的算法注册中心")
     
     async def convert_sql_result_to_algorithm_input(
         self,

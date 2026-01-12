@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from algorithm.models import AlgorithmRequest, AlgorithmResponse
+from algorithm.models import AlgorithmRequest, AlgorithmResponse, ManualDBSelectionRequest, ManualRunRequest
 from algorithm.service import AlgorithmIntegrationService
 from algorithm.streaming.streaming_handler import StreamingResponseHandler
 from infrastructure.config import get_settings
@@ -67,7 +67,8 @@ class AlgorithmIntegrationAPI:
                 response_generator = self.algorithm_service.process_algorithm_request(
                     question=request.question,
                     window_id=request.window_id,
-                    session_id=request.session_id
+                    session_id=request.session_id,
+                    auto_analysis=request.auto_analysis
                 )
                 
                 # 根据请求选择响应格式
@@ -104,6 +105,70 @@ class AlgorithmIntegrationAPI:
                     detail="Internal server error"
                 )
         
+        @app.post(
+            "/api/v1/algorithm/execute/manual-db-selection",
+            summary="手动选择数据库信息：生成新的 normalized_query",
+            description="手动模式第二段：用户选择列信息后，服务端基于选择生成新的 normalized_query"
+        )
+        async def manual_db_selection(request: ManualDBSelectionRequest) -> StreamingResponse:
+            try:
+                if not self.algorithm_service:
+                    raise HTTPException(status_code=503, detail="Service not available")
+
+                response_generator = self.algorithm_service.process_manual_db_selection(
+                    manual_selection_token=request.manual_selection_token,
+                    manual_parameter_mapping=request.manual_parameter_mapping,
+                    user_feedback=request.user_feedback,
+                )
+
+                if request.stream:
+                    return await self.streaming_handler.create_streaming_response(response_generator)
+                else:
+                    final_response = None
+                    async for response in response_generator:
+                        final_response = response
+                    if final_response:
+                        return final_response
+                    raise HTTPException(status_code=500, detail="No response generated")
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"manual-db-selection失败: {str(e)}", exc_info=True)
+                raise HTTPException(status_code=500, detail="Internal server error")
+
+        @app.post(
+            "/api/v1/algorithm/execute/manual-run",
+            summary="手动确认执行：执行SQL与算法",
+            description="手动模式第三段：用户确认 normalized_query 后开始执行 Step3/Step4"
+        )
+        async def manual_run(request: ManualRunRequest) -> StreamingResponse:
+            try:
+                if not self.algorithm_service:
+                    raise HTTPException(status_code=503, detail="Service not available")
+
+                response_generator = self.algorithm_service.process_manual_run(
+                    manual_selection_token=request.manual_selection_token,
+                    normalized_query=request.normalized_query,
+                    manual_parameter_mapping=request.manual_parameter_mapping,
+                )
+
+                if request.stream:
+                    return await self.streaming_handler.create_streaming_response(response_generator)
+                else:
+                    final_response = None
+                    async for response in response_generator:
+                        final_response = response
+                    if final_response:
+                        return final_response
+                    raise HTTPException(status_code=500, detail="No response generated")
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"manual-run失败: {str(e)}", exc_info=True)
+                raise HTTPException(status_code=500, detail="Internal server error")
+
         @app.get(
             "/api/v1/algorithm/execute/sse",
             summary="执行算法分析 (SSE)",
@@ -135,7 +200,8 @@ class AlgorithmIntegrationAPI:
                 response_generator = self.algorithm_service.process_algorithm_request(
                     question=question,
                     window_id=window_id,
-                    session_id=session_id
+                    session_id=session_id,
+                    auto_analysis=None
                 )
                 
                 # 返回SSE格式的流式响应
@@ -374,7 +440,8 @@ class AlgorithmIntegrationAPI:
                 response_generator = self.algorithm_service.process_algorithm_request(
                     question=request.question,
                     window_id=request.window_id,
-                    session_id=request.session_id
+                    session_id=request.session_id,
+                    auto_analysis=request.auto_analysis
                 )
                 
                 # 生成任务ID（如果需要）

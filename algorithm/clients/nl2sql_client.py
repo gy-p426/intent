@@ -147,6 +147,13 @@ class NL2SQLClient(INL2SQLClient):
                             'selectedDatabases': data.get('selectedDatabases', [])
                         }
                         
+                        # 调试日志
+                        logger.info(f"[NL2SQL Client调试] candidateTables 数量: {len(result['candidateTables'])}")
+                        if result['candidateTables']:
+                            logger.info(f"[NL2SQL Client调试] candidateTables 第一项: {result['candidateTables'][0][:200] if len(result['candidateTables'][0]) > 200 else result['candidateTables'][0]}")
+                        else:
+                            logger.warning(f"[NL2SQL Client调试] NL2SQL 返回的 candidateTables 为空!")
+                        
                         # 记录成功日志
                         execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
                         logger.info(f"NL2SQL /query-db接口调用成功，获取到 {len(result['candidateTables'])} 个候选表，耗时: {execution_time:.2f}ms")

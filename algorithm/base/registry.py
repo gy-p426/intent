@@ -73,11 +73,20 @@ algorithm_registry = AlgorithmRegistry()
 
 def register_all_algorithms(nl2sql_client=None):
     """自动注册所有算法"""
+    import traceback
+    logger.info(f"[register_all_algorithms] 开始注册算法，nl2sql_client: {nl2sql_client}")
+    logger.info(f"[register_all_algorithms] nl2sql_client 是否为 None: {nl2sql_client is None}")
+    logger.info(f"[register_all_algorithms] 调用堆栈:\n{''.join(traceback.format_stack())}")
+    if nl2sql_client:
+        logger.info(f"[register_all_algorithms] nl2sql_client 类型: {type(nl2sql_client).__name__}")
+    
     try:
         # K-Means算法
+        logger.info("[register_all_algorithms] 注册 K-Means 算法...")
         from algorithm.kmeans.extractor import KMeansExtractor
         from algorithm.kmeans.processor import KMeansProcessor
         algorithm_registry.register_algorithm(KMeansExtractor(nl2sql_client), KMeansProcessor())
+        logger.info("[register_all_algorithms] K-Means 算法注册成功")
 
         # 分类算法
         from algorithm.classification.extractor import ClassificationExtractor

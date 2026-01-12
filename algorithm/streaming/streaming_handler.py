@@ -88,7 +88,7 @@ class StreamingResponseHandler(IStreamingResponseHandler):
             # 创建StreamingResponse
             return StreamingResponse(
                 response_generator(),
-                media_type="text/plain; charset=utf-8",
+                media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
@@ -357,7 +357,7 @@ class StreamingResponseHandler(IStreamingResponseHandler):
             
             return StreamingResponse(
                 progress_aware_generator(),
-                media_type="text/plain; charset=utf-8",
+                media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
@@ -421,7 +421,7 @@ class StreamingResponseHandler(IStreamingResponseHandler):
             
             return StreamingResponse(
                 training_log_generator(),
-                media_type="text/plain; charset=utf-8",
+                media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
