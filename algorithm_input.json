@@ -246,42 +246,78 @@
       ]
     },
     "associate": {
-      "name": "关联分析",
-      "description": "发现数据项之间的关联规则，用于购物篮分析、推荐系统等",
-      "api_endpoint": "/association/rules",
+      "name": "多元关联分析",
+      "description": "分析变量之间的关联关系，支持二元、多变量两两、多变量综合三种分析模式，用于发现数据列之间的统计关联",
+      "api_endpoint": "/api/v1/association",
       "method": "POST",
       "required_fields": [
         {
-          "field": "transaction_column",
-          "type": "string",
-          "description": "交易或会话ID列"
-        },
-        {
-          "field": "item_column",
-          "type": "string",
-          "description": "项目或商品列"
+          "field": "columns",
+          "type": "array",
+          "description": "需要分析关联的列名数组（列注释），至少2列"
         }
       ],
       "optional_fields": [
         {
-          "field": "min_support",
-          "type": "float",
-          "default": 0.01,
-          "description": "最小支持度"
-        },
-        {
-          "field": "min_confidence",
-          "type": "float",
-          "default": 0.5,
-          "description": "最小置信度"
+          "field": "analysis_mode",
+          "type": "string",
+          "default": "auto",
+          "options": ["bivariate", "pairwise", "multivariate", "auto"],
+          "description": "分析模式：bivariate(二元，2列)、pairwise(两两，≥3列)、multivariate(综合，≥3列，第一列为因变量)，auto时根据列数自动推断"
         }
       ],
-      "data_format": "transactional",
-      "sql_template": "SELECT {transaction_column}, {item_column} FROM {table_name} WHERE {conditions}",
+      "data_format": "multi_columns",
+      "sql_template": "SELECT {columns} FROM {table_name} WHERE {conditions}",
+      "payload_structure": {
+        "data": "列数据数组，格式为[{name: 列名, values: [值...]}, ...]",
+        "options": {
+          "analysis_mode": "分析模式"
+        }
+      },
+      "analysis_modes": {
+        "bivariate": {
+          "name": "二元关联分析",
+          "description": "分析两个变量之间的关联关系",
+          "required_columns": 2,
+          "methods": ["卡方检验", "相关性分析", "方差分析"],
+          "api_endpoint": "/api/v1/association/bivariate",
+          "examples": ["分析年龄和薪资的关系", "分析性别与产品偏好的关联"]
+        },
+        "pairwise": {
+          "name": "多变量两两关联分析",
+          "description": "分析多个变量之间的两两关联关系，使用互信息方法",
+          "min_columns": 3,
+          "methods": ["互信息(MI)"],
+          "api_endpoint": "/api/v1/association/pairwise",
+          "examples": ["分析年龄、学历、工作年限之间的两两关联", "找出多个因素中哪些相互关联"]
+        },
+        "multivariate": {
+          "name": "多变量综合关联分析",
+          "description": "分析多个自变量与一个因变量的综合关联关系，第一列为因变量",
+          "min_columns": 3,
+          "methods": ["条件互信息(CMI)", "回归分析"],
+          "api_endpoint": "/api/v1/association/multivariate",
+          "examples": ["分析哪些因素影响薪资（薪资为因变量）", "分析多个自变量对因变量的综合影响"]
+        }
+      },
+      "data_requirements": {
+        "min_rows": 2,
+        "min_columns": 2,
+        "max_columns": null,
+        "numeric_features_required": false,
+        "same_length_required": true,
+        "mode_specific": {
+          "bivariate": {"exact_columns": 2},
+          "pairwise": {"min_columns": 3},
+          "multivariate": {"min_columns": 3, "note": "第一列为因变量"}
+        }
+      },
       "examples": [
-        "分析购买商品的关联关系",
-        "找出经常一起购买的产品组合",
-        "挖掘用户行为序列模式"
+        "分析教育水平与薪资的关系",
+        "分析性别与产品偏好的关联",
+        "分析年龄、学历、工作年限之间的关联关系",
+        "分析哪些因素影响员工薪资",
+        "找出影响销售额的关键因素"
       ]
     },
     "compare": {
