@@ -197,52 +197,52 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                 message=f"分类算法执行异常: {str(e)}",
                 readable_result=None
             )
-    
+
     async def execute_anomaly_detection(
-        self, 
+        self,
         request: AlgorithmExecutionRequest
     ) -> AlgorithmExecutionResponse:
         """
         执行异常检测算法（DBSCAN）
-        
+
         Args:
             request: 算法执行请求
-            
+
         Returns:
             AlgorithmExecutionResponse: 执行响应
         """
         logger.info("开始执行DBSCAN异常检测算法")
         logger.info(f"输入数据行数: {len(request.data_rows)}")
         logger.info(f"异常检测配置: {request.config}")
-        
+
         try:
             # 使用新的算法API客户端
             result_data = await self.algorithm_client.call_anomaly_detection_api(
                 data_rows=request.data_rows,
                 config=request.config
             )
-            
+
             # 详细记录算法结果
             logger.info("DBSCAN异常检测算法执行成功")
             logger.info(f"算法返回状态: {result_data.get('status', 'unknown')}")
-            
+
             # 将完整的返回结果显示在readable_result中，便于调试和查看原始数据
             import json
             readable_result = f"DBSCAN异常检测完整返回结果：\n{json.dumps(result_data, indent=2, ensure_ascii=False)}"
-            
+
             if result_data.get('status') == 'success':
                 # 解析新的返回格式
                 results = result_data.get('results', [])
-                
+
                 # 统计异常点和正常点
                 anomalies = []
                 normal_points = []
                 clusters = {}
-                
+
                 for item in results:
                     cluster_id = item.get('cluster_id')
                     item_id = item.get('id')
-                    
+
                     if cluster_id == -1:
                         # cluster_id = -1 表示异常点
                         anomalies.append(item)
@@ -252,23 +252,23 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                         if cluster_id not in clusters:
                             clusters[cluster_id] = []
                         clusters[cluster_id].append(item)
-                
+
                 logger.info(f"检测到异常点数量: {len(anomalies)}")
                 logger.info(f"正常点数量: {len(normal_points)}")
                 logger.info(f"聚类数量: {len(clusters)}")
-                
+
                 # 显示异常检测结果摘要
                 if anomalies:
                     anomaly_ids = [item.get('id', 'unknown') for item in anomalies[:3]]
                     logger.info(f"异常点示例: {anomaly_ids}")  # 显示前3个异常点ID
                 else:
                     logger.info("未检测到异常点")
-                
+
                 # 显示聚类摘要
                 if clusters:
                     cluster_summary = {f"聚类{cid}": len(items) for cid, items in clusters.items()}
                     logger.info(f"聚类分布: {cluster_summary}")
-                    
+
                 return AlgorithmExecutionResponse(
                     result=result_data,
                     status="success",
@@ -284,7 +284,7 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                     message=f"DBSCAN异常检测算法执行失败: {error_msg}",
                     readable_result=readable_result
                 )
-            
+
         except Exception as e:
             logger.error(f"DBSCAN异常检测算法执行失败: {str(e)}")
             return AlgorithmExecutionResponse(
@@ -293,7 +293,67 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                 message=f"DBSCAN异常检测算法执行失败: {str(e)}",
                 readable_result=f"DBSCAN异常检测异常：{str(e)}"
             )
-    
+
+    async def execute_compare_proportion(
+            self,
+            request: AlgorithmExecutionRequest
+    ) -> AlgorithmExecutionResponse:
+        """
+        执行占比分析算法
+
+        Args:
+            request: 算法执行请求
+
+        Returns:
+            AlgorithmExecutionResponse: 执行响应
+        """
+        logger.info("开始执行占比分析算法")
+        logger.info(f"输入数据行数: {len(request.data_rows)}")
+        logger.info(f"占比分析配置: {request.config}")
+
+        try:
+            # 使用新的算法API客户端
+            result_data = await self.algorithm_client.call_compare_proportion_api(
+                data_rows=request.data_rows,
+                config=request.config
+            )
+
+            # 详细记录算法结果
+            logger.info("占比分析算法执行成功")
+            logger.info(f"算法返回状态: {result_data.get('status', 'unknown')}")
+
+            # 将完整的返回结果显示在readable_result中，便于调试和查看原始数据
+            import json
+            readable_result = f"占比分析算法完整返回结果：\n{json.dumps(result_data, indent=2, ensure_ascii=False)}"
+
+
+            if result_data.get('status') == 'success':
+
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="success",
+                    message="占比分析算法执行成功",
+                    readable_result = None
+                )
+            else:
+                error_msg = result_data.get('error', result_data.get('message', '未知错误'))
+                logger.error(f"占比分析算法返回错误状态: {result_data}")
+                return AlgorithmExecutionResponse(
+                    result=result_data,  # 即使失败也返回完整结果用于调试
+                    status="error",
+                    message=f"占比分析算法执行失败: {error_msg}",
+                    readable_result = None
+                )
+
+        except Exception as e:
+            logger.error(f"占比分析算法执行失败: {str(e)}")
+            return AlgorithmExecutionResponse(
+                result={},
+                status="error",
+                message=f"占比分析算法执行失败: {str(e)}",
+                readable_result= None
+            )
+
     # async def execute_dbscan(
     #     self, 
     #     request: AlgorithmExecutionRequest
@@ -1049,6 +1109,10 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                 return await self.execute_anomaly_detection(algorithm_request)
             elif "关联" in algorithm_name or algorithm_type == "associate":
                 return await self.execute_association(algorithm_request)
+            elif ("占比" in algorithm_name
+                  or "贡献" in algorithm_name or "排行" in algorithm_name
+                  or "proportion" in algorithm_type):
+                return await self.execute_compare_proportion(algorithm_request)
             else:
                 # 对于其他算法类型，可以扩展支持
                 logger.warning(f"暂不支持的算法类型: {parameters.algorithm_type}")
@@ -1065,7 +1129,7 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             )
     
     async def poll_async_task_with_manager(
-        self, 
+        self,
         task_id: str,
         timeout_seconds: Optional[int] = None
     ) -> AsyncGenerator[AsyncTaskResponse, None]:

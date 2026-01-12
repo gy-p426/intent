@@ -27,6 +27,7 @@ class AlgorithmType(str, Enum):
     CAUSALITY = "causality"
     ALERT = "alert"
     RECOMMEND = "recommend"
+    COMPARE_PROPORTION = "compare_proportion"
 
 
 class ResponseFormat(str, Enum):

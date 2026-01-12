@@ -278,6 +278,15 @@ class Settings(BaseSettings):
         default="http://localhost:8012",
         description="推荐系统API静态URL"
     )
+
+    compare_proportion_service_name: str = Field(
+        default="compare_proportion-service",
+        description="占比分析系统服务名称"
+    )
+    compare_proportion_api_url: str = Field(
+        default="http://localhost:8210",
+        description="占比分析系统API静态URL"
+    )
     
     algorithm_api_timeout: int = Field(
         default=60,

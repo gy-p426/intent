@@ -59,6 +59,7 @@ class AlgorithmAPIClient:
             'causality': self.settings.causality_service_name,
             'alert': self.settings.alert_service_name,
             'recommendation': self.settings.recommendation_service_name,
+            'compare_proportion' : self.settings.compare_proportion_service_name,
         }
         
         # 静态URL映射（降级使用）
@@ -77,6 +78,7 @@ class AlgorithmAPIClient:
             'causality': self.settings.causality_api_url,
             'alert': self.settings.alert_api_url,
             'recommendation': self.settings.recommendation_api_url,
+            'compare_proportion': self.settings.compare_proportion_api_url,
         }
         
         logger.info(f"算法API客户端初始化完成，服务发现模式: {self.settings.service_discovery_mode}")
@@ -455,6 +457,23 @@ class AlgorithmAPIClient:
             "config": config
         }
         return await self.call_algorithm_api("anomaly", "/api/dbscan", "POST", payload)
+
+    async def call_compare_proportion_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        调用占比分析API
+
+        Args:
+            data_rows: 占比分析数据行
+            config: 占比分析配置
+
+        Returns:
+            Dict[str, Any]: 占比分析结果
+        """
+        payload = {
+            "data_rows": data_rows,
+            "config": config
+        }
+        return await self.call_algorithm_api("compare_proportion", "/api/compare_analysis_proportion", "POST", payload)
     
     # async def call_dbscan_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
     #     """

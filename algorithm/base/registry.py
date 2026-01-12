@@ -118,6 +118,11 @@ def register_all_algorithms(nl2sql_client=None):
         from algorithm.multivariate_forecast.extractor import MultivariateForecastExtractor
         from algorithm.multivariate_forecast.processor import MultivariateForecastProcessor
         algorithm_registry.register_algorithm(MultivariateForecastExtractor(nl2sql_client), MultivariateForecastProcessor())
+
+        # 占比分析算法
+        from algorithm.compare_proportion.extractor import CompareProportionExtractor
+        from algorithm.compare_proportion.processor import CompareProportionProcessor
+        algorithm_registry.register_algorithm(CompareProportionExtractor(nl2sql_client), CompareProportionProcessor())
         
         logger.info("所有算法注册完成")
         

@@ -809,6 +809,10 @@ class DataProcessor(IDataProcessor):
                 return AlgorithmType.SIMILARITY
             elif "趋势" in algorithm_config.name or "trend" in algorithm_name_lower:
                 return AlgorithmType.TREND
+            elif ("占比" in algorithm_config.name
+                  or "贡献" in algorithm_config.name  or "排行" in algorithm_config.name
+                  or "proportion" in algorithm_name_lower):
+                return AlgorithmType.COMPARE_PROPORTION
             else:
                 return None
         except Exception as e:
