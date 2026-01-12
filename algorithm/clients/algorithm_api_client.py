@@ -631,6 +631,42 @@ class AlgorithmAPIClient:
         }
         return await self.call_algorithm_api("trend", "/api/v1/forecast/multivariate", "POST", payload)
     
+    async def call_multi_analysis_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        调用统一多算法分析API
+        
+        支持一次调用执行多种分析：周期性分析、环比分析、同比分析、定基比分析
+        
+        Args:
+            data_rows: 时间序列数据，格式为 [{timestamp, value}, ...]
+            config: 分析配置，包含：
+                - analysis_types: 要执行的分析类型列表
+                - include_all: 是否执行所有分析
+                - candidate_periods: 周期性分析候选周期
+                - period_type: 环比/同比分析周期类型
+                - base_period: 定基比分析基期
+                - base_value: 定基比分析基期指数值
+                - simplified: 是否返回简化结果
+            
+        Returns:
+            Dict[str, Any]: 统一多算法分析结果
+        """
+        payload = {
+            "data": data_rows,
+            "analysis_types": config.get('analysis_types'),
+            "include_all": config.get('include_all', True),
+            "candidate_periods": config.get('candidate_periods'),
+            "period_type": config.get('period_type'),
+            "base_period": config.get('base_period'),
+            "base_value": config.get('base_value', 100),
+            "simplified": config.get('simplified', False)
+        }
+        
+        # 移除 None 值的参数
+        payload = {k: v for k, v in payload.items() if v is not None}
+        
+        return await self.call_algorithm_api("trend", "/api/v1/trend/multi-analysis", "POST", payload)
+    
     async def query_task_status(self, algorithm_type: str, task_id: str) -> Dict[str, Any]:
         """
         查询异步任务状态

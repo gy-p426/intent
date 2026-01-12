@@ -143,6 +143,11 @@ class PureLLMAlgorithmSelector:
     - 关键词：占比、贡献、排行
     - 示例：对A、B两名员工分析销售的占比贡献情况
 
+14. multi_analysis (统一多算法分析)
+    - 用途：综合分析时间序列数据，支持周期性分析、环比分析、同比分析、定基比分析
+    - 关键词：周期性、环比、同比、定基比、综合分析、全面分析、周期规律、与上期对比、与去年对比、以...为基准
+    - 示例：分析销售数据的周期性规律、对比本月和上月的销售额变化、分析今年与去年同期的业绩对比、以2020年为基期计算各年度指数
+
 
 识别原则：
 1. 仔细分析用户问题的核心目标和意图
@@ -180,7 +185,7 @@ class PureLLMAlgorithmSelector:
             valid_algorithms = {
                 'cluster', 'classify', 'predict', 'anomaly', 'associate', 
                 'compare', 'similarity', 'trend', 'profile', 'causality', 
-                'alert', 'recommend', 'compare_proportion',
+                'alert', 'recommend', 'compare_proportion', 'multi_analysis',
             }
             
             # 直接匹配

@@ -748,6 +748,67 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                 readable_result=None  # 🆕 异常情况下也会自动处理
             )
     
+    async def execute_multi_analysis(
+        self,
+        request: AlgorithmExecutionRequest
+    ) -> AlgorithmExecutionResponse:
+        """
+        执行统一多算法分析（调用 forecast_service）
+        
+        支持周期性分析、环比分析、同比分析、定基比分析
+        
+        Args:
+            request: 算法执行请求
+            
+        Returns:
+            AlgorithmExecutionResponse: 执行响应
+        """
+        logger.info("开始执行统一多算法分析")
+        logger.info(f"输入数据行数: {len(request.data_rows)}")
+        logger.info(f"统一多算法分析配置: {request.config}")
+        
+        try:
+            # 使用算法API客户端调用
+            result_data = await self.algorithm_client.call_multi_analysis_api(
+                data_rows=request.data_rows,
+                config=request.config
+            )
+            
+            logger.info("统一多算法分析执行成功")
+            
+            # 检查返回结果
+            success_count = result_data.get('成功数量', 0)
+            failure_count = result_data.get('失败数量', 0)
+            
+            if success_count > 0:
+                # 使用返回的"解释"字段作为readable_result
+                explanation = result_data.get('解释', '')
+                
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="success",
+                    message=f"统一多算法分析执行成功，成功{success_count}项，失败{failure_count}项",
+                    readable_result=explanation if explanation else None
+                )
+            else:
+                error_msg = f"所有分析均失败，失败{failure_count}项"
+                logger.error(f"统一多算法分析执行失败: {error_msg}")
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="error",
+                    message=f"统一多算法分析执行失败: {error_msg}",
+                    readable_result=None
+                )
+                
+        except Exception as e:
+            logger.error(f"统一多算法分析执行异常: {str(e)}")
+            return AlgorithmExecutionResponse(
+                result={},
+                status="error",
+                message=f"统一多算法分析执行异常: {str(e)}",
+                readable_result=None
+            )
+    
     async def forecast_service_health_check(self) -> bool:
         """
         检查 Forecast Service 健康状态
