@@ -25,27 +25,66 @@ class ParameterExtractor(IParameterExtractor):
     使用LLM从用户查询中提取算法特定参数，并将参数映射到数据库列。
     """
     
-    def __init__(self, llm_client: LLMClient, config_manager: IAlgorithmConfigManager):
+    def __init__(self, llm_client: LLMClient, config_manager: IAlgorithmConfigManager, nl2sql_client=None):
         """
         初始化参数提取器
         
         Args:
             llm_client: LLM客户端
             config_manager: 算法配置管理器
+            nl2sql_client: NL2SQL客户端（可选，如果不提供则创建新实例）
         """
         self.llm_client = llm_client
         self.config_manager = config_manager
         
+        # 调试日志
+        logger.info(f"[ParameterExtractor初始化] 传入的 nl2sql_client 是否为 None: {nl2sql_client is None}")
+        if nl2sql_client:
+            logger.info(f"[ParameterExtractor初始化] nl2sql_client 类型: {type(nl2sql_client).__name__}")
+            logger.info(f"[ParameterExtractor初始化] nl2sql_client.base_url: {getattr(nl2sql_client, 'base_url', 'N/A')}")
+        
         # 初始化算法注册中心
         from algorithm.base.registry import algorithm_registry, register_all_algorithms
-        from algorithm.clients.nl2sql_client import NL2SQLClient
         
-        # 创建NL2SQL客户端实例
-        nl2sql_client = NL2SQLClient()
+        # 使用传入的 nl2sql_client 或创建新实例
+        if nl2sql_client is None:
+            from algorithm.clients.nl2sql_client import NL2SQLClient
+            from infrastructure.config import get_settings
+            settings = get_settings()
+            nl2sql_client = NL2SQLClient(
+                base_url=settings.nl2sql_base_url,
+                timeout=settings.nl2sql_timeout
+            )
+            logger.info(f"[ParameterExtractor初始化] 创建了新的 NL2SQLClient 实例，base_url: {settings.nl2sql_base_url}")
+        else:
+            logger.info("[ParameterExtractor初始化] 使用传入的 NL2SQLClient 实例")
+        
+        logger.info(f"[ParameterExtractor初始化] 准备注册算法，nl2sql_client: {nl2sql_client}")
         register_all_algorithms(nl2sql_client)
         self.algorithm_registry = algorithm_registry
         
         logger.info("ParameterExtractor initialized with algorithm registry")
+
+    async def generate_normalized_query_from_manual_selection(
+        self,
+        *,
+        original_question: str,
+        algorithm_type: AlgorithmType,
+        manual_parameter_mapping: Dict[str, Any],
+        user_feedback: Optional[str] = None,
+    ) -> str:
+        """根据用户手动选择生成新的规范化查询。这用于手动数据库选择流程（步骤2.1）。
+        """
+        from algorithm.extractor.manual_normalized_query import build_manual_normalized_query_messages
+
+        messages = build_manual_normalized_query_messages(
+            original_question=original_question,
+            algorithm_type=algorithm_type.value,
+            manual_parameter_mapping=manual_parameter_mapping,
+            user_feedback=user_feedback,
+        )
+        resp = await self.llm_client.chat_completion(messages)
+        return (resp or "").strip().strip('"')
     
     async def extract_parameters(
         self, 
@@ -81,6 +120,9 @@ class ParameterExtractor(IParameterExtractor):
             algorithm_extractor = self.algorithm_registry.get_extractor_by_type(algorithm_type)
             if algorithm_extractor:
                 logger.info(f"使用算法特定提取器: {algorithm_extractor.algorithm_name}")
+                logger.info(f"[参数提取调试] 获取到的 extractor: {algorithm_extractor}")
+                logger.info(f"[参数提取调试] extractor.nl2sql_client: {algorithm_extractor.nl2sql_client}")
+                logger.info(f"[参数提取调试] extractor.nl2sql_client 是否为 None: {algorithm_extractor.nl2sql_client is None}")
                 return await self._extract_with_specific_extractor(
                     algorithm_extractor, question, algorithm_type, database_schema, window_id
                 )
@@ -121,6 +163,17 @@ class ParameterExtractor(IParameterExtractor):
             query_db_result = None
             if hasattr(algorithm_extractor, 'get_last_query_db_result'):
                 query_db_result = algorithm_extractor.get_last_query_db_result()
+                logger.info(f"[参数提取调试] extractor 类型: {type(algorithm_extractor).__name__}")
+                logger.info(f"[参数提取调试] 从 extractor 获取的 query_db_result 是否为 None: {query_db_result is None}")
+                if query_db_result:
+                    candidate_tables = query_db_result.get('candidateTables', [])
+                    logger.info(f"[参数提取调试] candidateTables 数量: {len(candidate_tables)}")
+                    if candidate_tables:
+                        logger.info(f"[参数提取调试] candidateTables 第一项: {candidate_tables[0][:200] if len(candidate_tables[0]) > 200 else candidate_tables[0]}")
+                else:
+                    logger.warning(f"[参数提取调试] get_last_query_db_result() 返回了 None 或空字典")
+            else:
+                logger.warning(f"[参数提取调试] extractor 类型 {type(algorithm_extractor).__name__} 没有 get_last_query_db_result 方法")
             
             return AlgorithmParameters(
                 algorithm_type=algorithm_type,
@@ -219,8 +272,15 @@ class ParameterExtractor(IParameterExtractor):
         # 从NL2SQL服务获取候选表信息和关键词
         schema_text, query_db_result = await self._get_candidate_tables_from_nl2sql(question, window_id)
         
+        # 调试日志
+        logger.info(f"[通用 Extractor调试] _get_candidate_tables_from_nl2sql 返回的 query_db_result 是否为 None: {query_db_result is None}")
+        if query_db_result:
+            candidate_tables = query_db_result.get('candidateTables', [])
+            logger.info(f"[通用 Extractor调试] candidateTables 数量: {len(candidate_tables)}")
+        
         # 保存查询结果供后续使用
         self._last_query_db_result = query_db_result
+        logger.info(f"[通用 Extractor调试] 已保存 _last_query_db_result 到 ParameterExtractor 实例")
         
         # 格式化算法字段要求
         fields_text = self._format_algorithm_fields(algorithm_config)

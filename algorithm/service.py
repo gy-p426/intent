@@ -125,7 +125,12 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             'parameter_extraction': RetryConfig(max_attempts=2, base_delay=0.5, max_delay=5.0),
             'llm_analysis': RetryConfig(max_attempts=self.settings.llm_analysis_max_retries, base_delay=1.0, max_delay=10.0)
         }
-        
+
+        # 手动模式上下文存储（token -> context），用于跨请求继续
+        # 说明：当前先采用进程内内存存储，适用于单实例；生产可替换为 Redis。
+        from algorithm.manual_context import ManualContextStore
+        self._manual_context_store = ManualContextStore(ttl_seconds=30 * 60)
+
         logger.info("算法集成服务初始化完成")
     
     async def process_algorithm_request(
@@ -133,7 +138,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         question: str, 
         window_id: str, 
         session_id: str,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        auto_analysis: Optional[bool] = None
     ) -> AlgorithmResponseGenerator:
         """
         处理算法请求的主要方法
@@ -160,7 +166,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             'session_id': session_id,
             'user_id': user_id,
             'trace_id': trace_id,
-            'start_time': datetime.utcnow()
+            'start_time': datetime.utcnow(),
+            'auto_analysis': auto_analysis
         }
         
         try:
@@ -194,6 +201,115 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             error_response = self.error_handler.handle_error(e, request_context)
             yield error_response
     
+    def _build_required_columns_for_manual_mode(
+        self, 
+        algorithm_type: AlgorithmType,
+        parameters: AlgorithmParameters
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        为手动模式构建 required_columns 字段映射
+        
+        Args:
+            algorithm_type: 算法类型
+            parameters: 算法参数
+            
+        Returns:
+            Dict[str, Dict[str, Any]]: required_columns 字典
+                key: 字段名
+                value: 字段配置 {description, is_array, required}
+        """
+        required_columns = {}
+        param_mapping = parameters.parameter_mapping or {}
+        
+        # 根据算法类型构建 required_columns
+        if algorithm_type == AlgorithmType.CLUSTER:
+            # 聚类算法（K-Means、DBSCAN等）需要: id_column, feature_columns
+            required_columns['id_column'] = {
+                'description': '标识列（用于标识每个数据点）',
+                'is_array': False,
+                'required': True
+            }
+            required_columns['feature_columns'] = {
+                'description': '特征列（用于聚类的数值型列）',
+                'is_array': True,
+                'required': True
+            }
+        elif algorithm_type == AlgorithmType.CLASSIFY:
+            # 分类算法（随机森林等）需要: id_column, label_column, feature_columns
+            required_columns['id_column'] = {
+                'description': '标识列',
+                'is_array': False,
+                'required': True
+            }
+            required_columns['label_column'] = {
+                'description': '标签列（分类目标）',
+                'is_array': False,
+                'required': True
+            }
+            required_columns['feature_columns'] = {
+                'description': '特征列（用于预测的数值型列）',
+                'is_array': True,
+                'required': True
+            }
+        elif algorithm_type == AlgorithmType.ANOMALY:
+            # 异常检测算法（孤立森林、DBSCAN等）需要: id_column, feature_columns
+            required_columns['id_column'] = {
+                'description': '标识列',
+                'is_array': False,
+                'required': True
+            }
+            required_columns['feature_columns'] = {
+                'description': '特征列（用于异常检测的数值型列）',
+                'is_array': True,
+                'required': True
+            }
+        elif algorithm_type in [AlgorithmType.PREDICT, AlgorithmType.TREND]:
+            # 时间序列分析需要: timestamp_column, value_column
+            required_columns['timestamp_column'] = {
+                'description': '时间戳列',
+                'is_array': False,
+                'required': True
+            }
+            required_columns['value_column'] = {
+                'description': '数值列（要分析的指标）',
+                'is_array': False,
+                'required': True
+            }
+        elif algorithm_type == AlgorithmType.SIMILARITY:
+            # 相似度分析（DTW等）需要: time_series1, time_series2
+            required_columns['time_series1'] = {
+                'description': '时间序列1',
+                'is_array': False,
+                'required': True
+            }
+            required_columns['time_series2'] = {
+                'description': '时间序列2',
+                'is_array': False,
+                'required': True
+            }
+        elif algorithm_type == AlgorithmType.ASSOCIATE:
+            # 关联分析需要: columns（多列）
+            required_columns['columns'] = {
+                'description': '分析列（至少2列）',
+                'is_array': True,
+                'required': True
+            }
+        else:
+            # 默认情况：至少需要一个ID列和特征列
+            required_columns['id_column'] = {
+                'description': '标识列',
+                'is_array': False,
+                'required': True
+            }
+            required_columns['feature_columns'] = {
+                'description': '特征列',
+                'is_array': True,
+                'required': True
+            }
+        
+        logger.info(f"[手动模式] 为算法类型 {algorithm_type.value} 构建的 required_columns: {required_columns}")
+        return required_columns
+
     async def _process_with_error_handling(
         self,
         question: str,
@@ -215,6 +331,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         """
         try:
             from algorithm.models import AlgorithmResponse, StreamingStep, NL2SQLRequest
+            from algorithm.database.candidate_tables_parser import parse_candidate_tables
             
             # 步骤1: 识别算法类型
             trace_id = request_context.get('trace_id', 'unknown')
@@ -294,10 +411,83 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                         "normalized_query": parameters.normalized_query,
                         "required_columns": parameters.required_columns,
                         "parameter_mapping": parameters.parameter_mapping,
+                        "query_db_result": parameters.query_db_result,
                         "message": "参数提取完成"
                     },
                     timestamp=datetime.utcnow()
                 )
+
+                # 手动模式：在参数提取后给前端返回可选 schema 信息，并结束本次请求
+                if request_context.get('auto_analysis') is False:
+                    manual_selection_token = trace_id
+                    candidate_tables = []
+                    keywords = {}
+                    
+                    # 调试日志：检查 query_db_result
+                    logger.info(f"[手动模式调试] parameters.query_db_result 是否为 None: {parameters.query_db_result is None}")
+                    if parameters.query_db_result:
+                        logger.info(f"[手动模式调试] query_db_result 内容: {parameters.query_db_result}")
+                        candidate_tables = parameters.query_db_result.get('candidateTables', []) or []
+                        keywords = parameters.query_db_result.get('keywords', {}) or {}
+                        logger.info(f"[手动模式调试] candidateTables 数量: {len(candidate_tables)}")
+                        if candidate_tables:
+                            logger.info(f"[手动模式调试] candidateTables 第一项: {candidate_tables[0][:200] if len(candidate_tables[0]) > 200 else candidate_tables[0]}")
+                    else:
+                        logger.warning(f"[手动模式调试] parameters.query_db_result 为 None!")
+
+                    parsed_tables = parse_candidate_tables(candidate_tables)
+                    logger.info(f"[手动模式调试] parsed_tables 数量: {len(parsed_tables)}")
+                    db_schema_options = []
+                    for t in parsed_tables:
+                        db_schema_options.append({
+                            'table_name': t.table_name,
+                            'table_comment': t.table_comment,
+                            'columns': [
+                                {
+                                    'table_name': c.table_name,
+                                    'table_comment': c.table_comment,
+                                    'column_name': c.column_name,
+                                    'column_comment': c.column_comment,
+                                    'data_type': c.data_type,
+                                }
+                                for c in t.columns
+                            ]
+                        })
+
+                    # 构建 required_columns 字段映射
+                    required_columns = self._build_required_columns_for_manual_mode(
+                        algorithm_type, 
+                        parameters
+                    )
+
+                    # store context for subsequent manual endpoints
+                    from algorithm.manual_context import ManualFlowContext
+                    self._manual_context_store.set(
+                        manual_selection_token,
+                        ManualFlowContext(
+                            created_at=datetime.utcnow(),
+                            question=question,
+                            window_id=window_id,
+                            session_id=session_id,
+                            algorithm_type=algorithm_type,
+                            parameters=parameters,
+                            candidate_tables=candidate_tables,
+                            keywords=keywords,
+                        ),
+                    )
+
+                    yield AlgorithmResponse(
+                        step=StreamingStep.MANUAL_DB_SELECTION,
+                        status="completed",
+                        data={
+                            'manual_selection_token': manual_selection_token,
+                            'db_schema_options': db_schema_options,
+                            'required_columns': required_columns,
+                            'message': '请在前端选择需要使用的表/列信息后继续'
+                        },
+                        timestamp=datetime.utcnow()
+                    )
+                    return
                 
             except Exception as e:
                 execution_time_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
@@ -501,13 +691,31 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                 # 构建增强的最终完成响应
                                 algorithm_type_chinese = ALGORITHM_TYPE_CHINESE_MAP.get(algorithm_type, algorithm_type.value)
                                 
-                                # 使用大模型分析结果
-                                readable_result = await self._format_readable_result_with_llm(
-                                    algorithm_type, 
-                                    algorithm_result, 
-                                    nl2sql_response.execution_result,
-                                    parameters.normalized_query  # 传入用户原始问题
+                                # 检查算法执行结果是否有效
+                                algorithm_status = algorithm_result.get('status', 'unknown')
+                                is_algorithm_success = (
+                                    algorithm_status == 'success' and 
+                                    algorithm_result and 
+                                    len(algorithm_result) > 1  # 至少包含 status 和其他字段
                                 )
+                                
+                                # 只有在算法执行成功时才进行大模型分析
+                                if is_algorithm_success:
+                                    logger.info(f"算法执行成功，开始大模型分析")
+                                    readable_result = await self._format_readable_result_with_llm(
+                                        algorithm_type, 
+                                        algorithm_result, 
+                                        nl2sql_response.execution_result,
+                                        parameters.normalized_query  # 传入用户原始问题
+                                    )
+                                else:
+                                    logger.warning(f"算法执行失败或结果为空 (status={algorithm_status})，跳过大模型分析")
+                                    # 生成简单的错误说明
+                                    error_message = algorithm_result.get('error', '算法执行失败，未返回有效结果')
+                                    readable_result = {
+                                        "llm_analysis": f"算法执行未成功完成。{error_message}",
+                                        "analysis_source": "error_fallback"
+                                    }
                                 
                                 final_data = {
                                     "algorithm_type": algorithm_type.value,
@@ -522,7 +730,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                         "sql_execution_time": nl2sql_response.execution_time_ms
                                     },
                                     "readable_result": readable_result,
-                                    "message": f"{algorithm_type_chinese}算法分析结果如下"
+                                    "message": f"{algorithm_type_chinese}算法分析结果如下" if is_algorithm_success else f"{algorithm_type_chinese}算法执行失败"
                                 }
                                 
                                 logger.info(f"完整算法流程执行完成: {algorithm_type.value}")
@@ -530,7 +738,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                 
                                 yield AlgorithmResponse(
                                     step=StreamingStep.COMPLETED,
-                                    status="completed",
+                                    status="completed" if is_algorithm_success else "failed",
                                     data=final_data,
                                     timestamp=datetime.utcnow()
                                 )
@@ -591,6 +799,292 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 original_error=e
             )
     
+    async def process_manual_db_selection(
+        self,
+        manual_selection_token: str,
+        manual_parameter_mapping: Dict[str, Any],
+        user_feedback: Optional[str] = None,
+    ) -> AlgorithmResponseGenerator:
+        """手动流程步骤 2：根据用户选择生成新的规范化查询"""
+        from algorithm.models import AlgorithmResponse, StreamingStep
+
+        ctx = self._manual_context_store.get(manual_selection_token)
+        if not ctx:
+            yield AlgorithmResponse(
+                step=StreamingStep.MANUAL_DB_SELECTION,
+                status="error",
+                error="manual_selection_token无效或已过期",
+                timestamp=datetime.utcnow(),
+            )
+            return
+
+        if not self.parameter_extractor:
+            yield AlgorithmResponse(
+                step=StreamingStep.MANUAL_DB_SELECTION,
+                status="error",
+                error="parameter_extractor未初始化",
+                timestamp=datetime.utcnow(),
+            )
+            return
+
+        new_normalized_query = await self.parameter_extractor.generate_normalized_query_from_manual_selection(
+            original_question=ctx.question,
+            algorithm_type=ctx.algorithm_type,
+            manual_parameter_mapping=manual_parameter_mapping,
+            user_feedback=user_feedback,
+        )
+
+        yield AlgorithmResponse(
+            step=StreamingStep.MANUAL_DB_SELECTION,
+            status="completed",
+            data={
+                "manual_selection_token": manual_selection_token,
+                "normalized_query": new_normalized_query,
+                "message": "normalized_query生成完成"
+            },
+            timestamp=datetime.utcnow(),
+        )
+
+    async def process_manual_run(
+        self,
+        manual_selection_token: str,
+        normalized_query: str,
+        manual_parameter_mapping: Dict[str, Any],
+    ) -> AlgorithmResponseGenerator:
+        """手动流程步骤 3：使用用户确认的 normalized_query 和所选模式运行第3/4步。"""
+        from algorithm.models import AlgorithmResponse, StreamingStep, NL2SQLRequest
+        from algorithm.database.candidate_tables_parser import (
+            parse_candidate_tables,
+            flatten_columns,
+            rebuild_candidate_tables_from_selected_columns,
+        )
+
+        ctx = self._manual_context_store.get(manual_selection_token)
+        if not ctx:
+            yield AlgorithmResponse(
+                step=StreamingStep.MANUAL_DB_SELECTION,
+                status="error",
+                error="manual_selection_token无效或已过期",
+                timestamp=datetime.utcnow(),
+            )
+            return
+
+        # 从 manual_parameter_mapping 构建所选列列表（字段 -> 字典/字典列表）
+        selected_columns: List[Dict[str, Any]] = []
+        def _collect(v: Any):
+            if isinstance(v, dict):
+                # if looks like a column spec
+                if (v.get('table_name') or v.get('table')) and (v.get('column_name') or v.get('column')):
+                    selected_columns.append(v)
+                else:
+                    for vv in v.values():
+                        _collect(vv)
+            elif isinstance(v, list):
+                for vv in v:
+                    _collect(vv)
+
+        _collect(manual_parameter_mapping)
+
+        # 从原始候选表填充元数据
+        parsed_tables = parse_candidate_tables(ctx.candidate_tables or [])
+        table_comment_by_name: Dict[str, str] = {t.table_name: t.table_comment for t in parsed_tables}
+        column_meta_by_fqn: Dict[tuple, Dict[str, str]] = {}
+        for c in flatten_columns(parsed_tables):
+            column_meta_by_fqn[(c.table_name, c.column_name)] = {
+                'column_comment': c.column_comment,
+                'data_type': c.data_type,
+            }
+
+        rebuilt_candidate_tables = rebuild_candidate_tables_from_selected_columns(
+            selected_columns,
+            table_comment_by_name=table_comment_by_name,
+            column_meta_by_fqn=column_meta_by_fqn,
+        )
+
+        # 准备步骤3/4的参数
+        parameters = ctx.parameters.model_copy(deep=True)
+        parameters.normalized_query = normalized_query
+        if parameters.query_db_result is None:
+            parameters.query_db_result = {}
+        parameters.query_db_result['candidateTables'] = rebuilt_candidate_tables
+        parameters.query_db_result['keywords'] = getattr(ctx, 'keywords', {}) or {}
+
+        # 步骤3：SQL生成与数据检索
+        if not self.nl2sql_client:
+            yield AlgorithmResponse(
+                step=StreamingStep.COMPLETED,
+                status="completed",
+                data={
+                    "algorithm_type": ctx.algorithm_type.value,
+                    "normalized_query": parameters.normalized_query,
+                    "message": "参数已确认，但NL2SQL客户端未配置"
+                },
+                timestamp=datetime.utcnow(),
+            )
+            return
+
+        yield AlgorithmResponse(
+            step=StreamingStep.SQL_GENERATION,
+            status="processing",
+            data={"message": "正在生成SQL查询..."},
+            timestamp=datetime.utcnow(),
+        )
+
+        try:
+            if parameters.query_db_result and parameters.query_db_result.get('candidateTables'):
+                nl2sql_response = await self._query_nl2sql_with_candidates_retry(
+                    parameters.normalized_query,
+                    parameters.query_db_result['candidateTables'],
+                    parameters.query_db_result.get('keywords', {}),
+                    ctx.window_id,
+                    ctx.session_id,
+                )
+            else:
+                nl2sql_request = NL2SQLRequest(
+                    question=parameters.normalized_query,
+                    window_id=ctx.window_id,
+                    session_id=ctx.session_id,
+                )
+                nl2sql_response = await self._query_nl2sql_with_retry(nl2sql_request)
+
+            yield AlgorithmResponse(
+                step=StreamingStep.SQL_GENERATION,
+                status="completed",
+                data={
+                    "sql_statement": nl2sql_response.sql_statement,
+                    "execution_time_ms": nl2sql_response.execution_time_ms,
+                    "message": "SQL生成完成"
+                },
+                timestamp=datetime.utcnow(),
+            )
+
+            yield AlgorithmResponse(
+                step=StreamingStep.DATA_RETRIEVAL,
+                status="completed",
+                data={
+                    "data_rows_count": len(nl2sql_response.execution_result),
+                    "sample_data": nl2sql_response.execution_result if nl2sql_response.execution_result else [],
+                    "message": f"数据检索完成，获取到 {len(nl2sql_response.execution_result)} 行数据"
+                },
+                timestamp=datetime.utcnow(),
+            )
+
+            # 步骤4：算法执行（通过调用现有的转换/执行器重用现有逻辑）
+            if self.algorithm_executor and self.data_processor:
+                algorithm_type = ctx.algorithm_type
+                algorithm_type_chinese = ALGORITHM_TYPE_CHINESE_MAP.get(algorithm_type, algorithm_type.value)
+                yield AlgorithmResponse(
+                    step=StreamingStep.ALGORITHM_EXECUTION,
+                    status="processing",
+                    data={"message": f"正在执行{algorithm_type_chinese}算法..."},
+                    timestamp=datetime.utcnow(),
+                )
+
+                algorithm_config = self.config_manager.get_algorithm_config(algorithm_type)
+                if not algorithm_config:
+                    raise AlgorithmExecutionError(
+                        f"未找到算法配置: {algorithm_type}",
+                        algorithm_type=algorithm_type,
+                    )
+
+                algorithm_request = await self._convert_data_with_validation(
+                    nl2sql_response.execution_result,
+                    algorithm_config,
+                    parameters,
+                )
+                execution_response = await self._execute_algorithm_with_retry(algorithm_type, algorithm_request)
+
+                if execution_response.task_id:
+                    yield AlgorithmResponse(
+                        step=StreamingStep.TASK_POLLING,
+                        status="processing",
+                        data={
+                            "task_id": execution_response.task_id,
+                            "message": "算法正在异步执行，开始轮询任务状态..."
+                        },
+                        timestamp=datetime.utcnow(),
+                    )
+
+                    task_response = None
+                    async for task_response in self._handle_async_task_with_timeout(execution_response.task_id, algorithm_type):
+                        yield AlgorithmResponse(
+                            step=StreamingStep.TASK_POLLING,
+                            status="processing" if task_response.status == "processing" else "completed",
+                            data={
+                                "task_id": task_response.task_id,
+                                "status": task_response.status.value,
+                                "progress": task_response.progress,
+                                "logs": task_response.logs,
+                                "message": f"任务状态: {task_response.status.value}"
+                            },
+                            timestamp=datetime.utcnow(),
+                        )
+                        if task_response.status != "processing":
+                            break
+
+                    if task_response and task_response.status == "success" and task_response.result:
+                        yield AlgorithmResponse(
+                            step=StreamingStep.COMPLETED,
+                            status="completed",
+                            data={
+                                "algorithm_type": algorithm_type.value,
+                                "algorithm_result": task_response.result,
+                                "task_id": task_response.task_id,
+                                "sql_statement": nl2sql_response.sql_statement,
+                                "normalized_query": parameters.normalized_query,
+                                "message": "算法执行完成"
+                            },
+                            timestamp=datetime.utcnow(),
+                        )
+                    else:
+                        raise AlgorithmExecutionError(
+                            f"异步任务失败: {getattr(task_response, 'error', None)}",
+                            algorithm_type=algorithm_type,
+                        )
+                else:
+                    algorithm_result = execution_response.result
+                    readable_result = await self._format_readable_result_with_llm(
+                        ctx.algorithm_type,
+                        algorithm_result,
+                        nl2sql_response.execution_result,
+                        parameters.normalized_query,
+                    )
+
+                    yield AlgorithmResponse(
+                        step=StreamingStep.COMPLETED,
+                        status="completed",
+                        data={
+                            "algorithm_type": algorithm_type.value,
+                            "algorithm_result": algorithm_result,
+                            "sql_statement": nl2sql_response.sql_statement,
+                            "normalized_query": parameters.normalized_query,
+                            "readable_result": readable_result,
+                            "message": "算法执行完成"
+                        },
+                        timestamp=datetime.utcnow(),
+                    )
+            else:
+                yield AlgorithmResponse(
+                    step=StreamingStep.COMPLETED,
+                    status="completed",
+                    data={
+                        "algorithm_type": ctx.algorithm_type.value,
+                        "sql_statement": nl2sql_response.sql_statement,
+                        "normalized_query": parameters.normalized_query,
+                        "message": "数据检索完成，算法执行器未配置"
+                    },
+                    timestamp=datetime.utcnow(),
+                )
+
+        except Exception as e:
+            logger.error(f"manual-run失败: {str(e)}", exc_info=True)
+            yield AlgorithmResponse(
+                step=StreamingStep.ERROR,
+                status="error",
+                error=str(e),
+                timestamp=datetime.utcnow(),
+            )
+
     async def identify_algorithm_type(self, question: str) -> AlgorithmType:
         """
         识别算法类型
@@ -1107,11 +1601,29 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             Dict[str, Any]: 包含大模型分析和技术细节的结果
         """
         try:
+            # 检查算法执行结果是否有效
+            algorithm_status = algorithm_result.get('status', 'unknown')
+            if algorithm_status != 'success':
+                logger.warning(f"算法执行状态为 {algorithm_status}，跳过大模型分析")
+                error_message = algorithm_result.get('error', '算法执行失败')
+                return {
+                    "llm_analysis": f"算法执行失败：{error_message}",
+                    "analysis_source": "error"
+                }
+            
+            # 检查结果是否为空
+            if not algorithm_result or len(algorithm_result) <= 1:
+                logger.warning("算法执行结果为空，跳过大模型分析")
+                return {
+                    "llm_analysis": "算法执行未返回有效结果",
+                    "analysis_source": "empty_result"
+                }
+            
             # 生成数据摘要
             data_summary = {
                 "total_rows": len(original_data),
                 "algorithm_type": algorithm_type.value,
-                "execution_status": algorithm_result.get('status', 'unknown')
+                "execution_status": algorithm_status
             }
             
             # 如果启用了大模型分析且分析器可用

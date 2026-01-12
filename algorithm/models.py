@@ -42,6 +42,8 @@ class StreamingStep(str, Enum):
     """流式响应步骤"""
     ALGORITHM_IDENTIFICATION = "algorithm_identification"
     PARAMETER_EXTRACTION = "parameter_extraction"
+    # 手动模式：用户选择数据库/列信息的交互步骤
+    MANUAL_DB_SELECTION = "manual_db_selection"
     SQL_GENERATION = "sql_generation"
     DATA_RETRIEVAL = "data_retrieval"
     ALGORITHM_EXECUTION = "algorithm_execution"
@@ -89,6 +91,8 @@ class AlgorithmRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=1000, description="用户自然语言查询")
     window_id: str = Field(default="default", description="窗口ID")
     session_id: str = Field(..., description="会话ID")
+    # None/True: 走现有自动分析；False: 手动选择数据库信息（新增交互步骤2.1）
+    auto_analysis: Optional[bool] = Field(default=None, description="是否自动分析；None/true=自动；false=手动选择数据库信息")
     stream: bool = Field(default=True, description="是否流式返回")
 
 
@@ -115,6 +119,22 @@ class NL2SQLResponse(BaseModel):
     execution_result: List[Dict[str, Any]] = Field(..., description="执行结果")
     execution_time_ms: int = Field(..., description="执行时间(毫秒)")
     error: Optional[str] = Field(None, description="错误信息")
+
+
+class ManualDBSelectionRequest(BaseModel):
+    """手动模式第二段：用户已选择列 -> 生成新的 normalized_query"""
+    manual_selection_token: str = Field(..., description="手动选择流程 token（第一次 /execute 返回）")
+    manual_parameter_mapping: Dict[str, Any] = Field(..., description="算法字段 -> 选中的 table/column 等信息（字段直映射）")
+    user_feedback: Optional[str] = Field(None, description="用户补充说明/反馈（可选）")
+    stream: bool = Field(default=True, description="是否流式返回")
+
+
+class ManualRunRequest(BaseModel):
+    """手动模式第三段：用户确认 normalized_query 后执行 Step3/4 全流程"""
+    manual_selection_token: str = Field(..., description="手动选择流程 token（第一次 /execute 返回）")
+    normalized_query: str = Field(..., min_length=1, description="用户确认后的 normalized_query")
+    manual_parameter_mapping: Dict[str, Any] = Field(..., description="算法字段 -> 选中的 table/column 等信息（字段直映射）")
+    stream: bool = Field(default=True, description="是否流式返回")
 
 
 class AlgorithmExecutionRequest(BaseModel):

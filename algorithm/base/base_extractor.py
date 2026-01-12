@@ -93,36 +93,83 @@ class BaseAlgorithmExtractor(ABC):
             return f"（获取数据库信息失败: {str(e)}）", {}
     
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
-        """通用JSON响应解析方法"""
+        """
+        通用JSON响应解析方法
+        
+        支持以下格式：
+        1. 纯JSON: {"key": "value"}
+        2. Markdown代码块: ```json\n{...}\n```
+        3. 普通代码块: ```\n{...}\n```
+        4. 带其他文本的响应（提取JSON部分）
+        
+        Args:
+            response: LLM返回的响应文本
+            
+        Returns:
+            Dict[str, Any]: 解析后的JSON对象
+            
+        Raises:
+            ValueError: 当无法解析JSON时
+        """
+        import re
+        
         try:
             # 清理响应文本
             response = response.strip()
             
-            # 处理可能的markdown代码块格式
-            if "```json" in response:
-                start = response.find("```json") + 7
-                end = response.find("```", start)
-                if end > start:
-                    response = response[start:end].strip()
-            elif "```" in response:
-                start = response.find("```") + 3
-                end = response.find("```", start)
-                if end > start:
-                    response = response[start:end].strip()
+            # 方法1: 使用正则表达式提取Markdown代码块中的内容
+            if '```' in response:
+                # 匹配 ```json ... ``` 或 ``` ... ```
+                pattern = r'```(?:json)?\s*\n?(.*?)\n?```'
+                match = re.search(pattern, response, re.DOTALL)
+                if match:
+                    json_str = match.group(1).strip()
+                    logger.debug(f"从Markdown代码块中提取JSON: {json_str[:100]}...")
+                else:
+                    # 如果正则失败，尝试手动提取
+                    logger.debug("正则匹配失败，尝试手动提取代码块")
+                    if "```json" in response:
+                        start = response.find("```json") + 7
+                    else:
+                        start = response.find("```") + 3
+                    
+                    # 跳过可能的换行符
+                    while start < len(response) and response[start] in '\n\r ':
+                        start += 1
+                    
+                    end = response.find("```", start)
+                    if end > start:
+                        json_str = response[start:end].strip()
+                        logger.debug(f"手动提取JSON: {json_str[:100]}...")
+                    else:
+                        json_str = response
+            else:
+                json_str = response
             
-            # 尝试查找JSON对象
-            start_idx = response.find('{')
-            end_idx = response.rfind('}')
+            # 方法2: 查找JSON对象的边界
+            # 尝试找到第一个 { 和最后一个 }
+            start_idx = json_str.find('{')
+            end_idx = json_str.rfind('}')
             
             if start_idx == -1 or end_idx == -1 or start_idx >= end_idx:
-                raise ValueError(f"响应中未找到有效的JSON对象: {response}")
+                logger.error(f"响应中未找到有效的JSON对象")
+                logger.error(f"原始响应: {response[:500]}")
+                raise ValueError(f"响应中未找到有效的JSON对象")
             
-            json_str = response[start_idx:end_idx + 1]
-            return json.loads(json_str)
+            # 提取JSON部分
+            json_str = json_str[start_idx:end_idx + 1]
+            
+            # 方法3: 解析JSON
+            result = json.loads(json_str)
+            logger.debug(f"JSON解析成功，包含keys: {list(result.keys())}")
+            return result
             
         except json.JSONDecodeError as e:
-            logger.error(f"JSON解析失败: {str(e)}, 响应内容: {response}")
+            logger.error(f"JSON解析失败: {str(e)}")
+            logger.error(f"原始响应（前500字符）: {response[:500]}")
+            logger.error(f"尝试解析的JSON字符串（前500字符）: {json_str[:500] if 'json_str' in locals() else 'N/A'}")
             raise ValueError(f"LLM响应格式错误，无法解析JSON: {str(e)}")
         except Exception as e:
-            logger.error(f"响应解析失败: {str(e)}, 响应内容: {response}")
+            logger.error(f"响应解析失败: {str(e)}")
+            logger.error(f"原始响应（前500字符）: {response[:500]}")
             raise ValueError(f"参数提取响应解析失败: {str(e)}")

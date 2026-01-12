@@ -629,6 +629,55 @@
         "针对故障原因给出维修建议"
       ]
     },
+    "compare_proportion": {
+      "name": "占比分析",
+      "description": "计算数值型特征列的占比、平均值、极值，分析各指标的贡献情况",
+      "api_endpoint": "/api/compare_analysis_proportion",
+      "method": "POST",
+      "required_fields": [
+        {
+          "field": "data_rows",
+          "type": "array",
+          "description": "待分析的数据行，每行包含ID和特征值"
+        },
+        {
+          "field": "id_column",
+          "type": "string",
+          "description": "用于标识每个数据点的ID列"
+        },
+        {
+          "field": "feature_columns",
+          "type": "array",
+          "description": "用于占比分析计算的数值型特征列"
+        }
+      ],
+      "optional_fields": [],
+      "data_format": "tabular",
+      "sql_template": "SELECT {id_column}, {feature_columns} FROM {table_name} WHERE {conditions}",
+      "payload_structure": {
+        "data_rows": "从SQL查询获取的数据行",
+        "config": {
+          "id_column": "ID列名",
+          "feature_columns": "特征列名数组",
+          "preprocessing": {
+            "handle_missing": true,
+            "normalize_features": false
+          }
+        }
+      },
+      "data_requirements": {
+        "min_features": 1,
+        "max_features": 50,
+        "min_rows": 1,
+        "numeric_features_required": true
+      },
+      "examples": [
+        "对A、B两名员工分析销售的占比贡献情况",
+        "分析各产品的销售占比",
+        "计算各部门的业绩贡献度",
+        "找出贡献超过80%的关键指标"
+      ]
+    },
     "task_query": {
       "name": "异步任务结果查询",
       "description": "查询TabNet异步分类任务的训练进度或最终结果",

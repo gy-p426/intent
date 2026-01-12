@@ -63,6 +63,18 @@ class IParameterExtractor(ABC):
         """
         pass
 
+    @abstractmethod
+    async def generate_normalized_query_from_manual_selection(
+        self,
+        *,
+        original_question: str,
+        algorithm_type: AlgorithmType,
+        manual_parameter_mapping: Dict[str, Any],
+        user_feedback: Optional[str] = None,
+    ) -> str:
+        """手动流程：根据用户选择生成新的 normalized_query"""
+        pass
+
 
 class INL2SQLClient(ABC):
     """NL2SQL客户端接口"""
