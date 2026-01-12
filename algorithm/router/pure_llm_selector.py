@@ -137,6 +137,12 @@ class PureLLMAlgorithmSelector:
     - 用途：提供个性化推荐和建议
     - 关键词：推荐、建议、优化、个性化
     - 示例：根据用户行为推荐产品、提供业务优化建议
+    
+13. compare_proportion (占比分析)
+    - 用途：分析各数值型指标的占比情况、最大最小值、均值、有没有贡献超过80%的id
+    - 关键词：占比、贡献、排行
+    - 示例：对A、B两名员工分析销售的占比贡献情况
+
 
 识别原则：
 1. 仔细分析用户问题的核心目标和意图
@@ -174,7 +180,7 @@ class PureLLMAlgorithmSelector:
             valid_algorithms = {
                 'cluster', 'classify', 'predict', 'anomaly', 'associate', 
                 'compare', 'similarity', 'trend', 'profile', 'causality', 
-                'alert', 'recommend'
+                'alert', 'recommend', 'compare_proportion',
             }
             
             # 直接匹配
