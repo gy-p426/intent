@@ -654,6 +654,115 @@
         "获取TabNet模型的最终预测结果",
         "检查异步任务是否完成"
       ]
+    },
+    "multi_analysis": {
+      "name": "统一多算法分析",
+      "description": "统一多算法分析接口，支持一次调用执行多种时间序列分析：周期性分析、环比分析、同比分析、定基比分析",
+      "api_endpoint": "/api/v1/trend/multi-analysis",
+      "method": "POST",
+      "required_fields": [
+        {
+          "field": "timestamp_column",
+          "type": "string",
+          "description": "时间戳列名，用于标识时间序列的时间点"
+        },
+        {
+          "field": "value_column",
+          "type": "string",
+          "description": "数值列名，用于分析的目标数值"
+        }
+      ],
+      "optional_fields": [
+        {
+          "field": "analysis_types",
+          "type": "array",
+          "default": null,
+          "options": ["periodicity", "period_over_period", "year_over_year", "base_period_index"],
+          "description": "要执行的分析类型列表：periodicity(周期性)、period_over_period(环比)、year_over_year(同比)、base_period_index(定基比)"
+        },
+        {
+          "field": "include_all",
+          "type": "boolean",
+          "default": true,
+          "description": "是否执行所有分析（当analysis_types为空时生效）"
+        },
+        {
+          "field": "candidate_periods",
+          "type": "array",
+          "default": null,
+          "description": "周期性分析：候选周期列表"
+        },
+        {
+          "field": "period_type",
+          "type": "string",
+          "default": null,
+          "options": ["hour", "day", "week", "month", "quarter", "year"],
+          "description": "环比/同比分析：周期类型"
+        },
+        {
+          "field": "base_period",
+          "type": "string",
+          "default": null,
+          "description": "定基比分析：基期标识，如 '2020'"
+        },
+        {
+          "field": "base_value",
+          "type": "float",
+          "default": 100,
+          "description": "定基比分析：基期指数值"
+        },
+        {
+          "field": "simplified",
+          "type": "boolean",
+          "default": false,
+          "description": "是否返回简化结果（仅包含解释和关键指标）"
+        }
+      ],
+      "data_format": "time_series",
+      "sql_template": "SELECT {timestamp_column}, {value_column} FROM {table_name} WHERE {time_conditions} ORDER BY {timestamp_column}",
+      "payload_structure": {
+        "data_rows": "从SQL查询获取的时间序列数据，格式为[{timestamp, value}, ...]",
+        "config": {
+          "timestamp_column": "时间列名",
+          "value_column": "数值列名",
+          "analysis_types": "分析类型数组或null",
+          "include_all": "是否执行所有分析",
+          "period_type": "周期类型",
+          "base_period": "基期标识",
+          "base_value": "基期指数值",
+          "simplified": "是否简化输出"
+        }
+      },
+      "sub_algorithms": {
+        "periodicity": {
+          "name": "周期性分析",
+          "description": "检测数据的周期性规律",
+          "examples": ["分析销售数据是否存在周期性规律", "检测出车次数有没有周期性"]
+        },
+        "period_over_period": {
+          "name": "环比分析",
+          "description": "与上一周期对比（如本月vs上月）",
+          "examples": ["分析本月销售额与上月的环比变化", "对比本周和上周的出车次数"]
+        },
+        "year_over_year": {
+          "name": "同比分析",
+          "description": "与去年同期对比（如今年3月vs去年3月）",
+          "examples": ["分析今年销售额与去年同期的对比", "计算出车次数的同比增长率"]
+        },
+        "base_period_index": {
+          "name": "定基比分析",
+          "description": "以固定基期计算指数",
+          "examples": ["以2020年为基期计算各年度销售指数", "以1月为基准分析各月的出车指数"]
+        }
+      },
+      "examples": [
+        "分析销售数据的周期性规律",
+        "对比本月和上月的销售额变化",
+        "分析今年与去年同期的业绩对比",
+        "以2020年为基期计算各年度指数",
+        "综合分析出车数据的周期性和环比变化",
+        "全面分析销售数据的变化规律"
+      ]
     }
   },
   "metadata": {
