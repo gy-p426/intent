@@ -67,7 +67,6 @@ class AssociationExtractor(BaseAlgorithmExtractor):
      * "Y受哪些因素影响" - Y是因变量（放第一列）
      * "分析对Y的影响" - Y是因变量（放第一列）
      * "Y与A、B、C的关系" - Y是因变量（放第一列）
-     * "预测Y" - Y是因变量（放第一列）
    - 特点：有明确的因变量（目标变量），其他为自变量（影响因素）
 
 数据库可用列信息：
