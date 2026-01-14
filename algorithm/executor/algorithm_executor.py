@@ -484,8 +484,34 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             
             # 🎉 新版本：无需编写复杂的格式化逻辑！
             # 只需要返回原始结果，大模型会自动生成用户友好的分析
-            # 检查响应中是否包含必需的字段来判断成功
-            if 'column1_name' in result_data:
+            
+            # 检查响应是否包含错误信息
+            if 'error' in result_data:
+                error_msg = result_data.get('error', '未知错误')
+                logger.error(f"关联分析返回错误: {error_msg}")
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="error",
+                    message=f"关联分析执行失败: {error_msg}",
+                    readable_result=None
+                )
+            
+            # 检查响应中是否包含有效结果字段
+            # 支持新格式（'解释'、'算法结果'）和旧格式（'column1_name'）
+            has_valid_result = (
+                '解释' in result_data or 
+                '算法结果' in result_data or 
+                'column1_name' in result_data or
+                'analysis_result' in result_data
+            )
+            
+            if has_valid_result and result_data:
+                # 统一添加status字段，确保与其他算法响应格式一致
+                if 'status' not in result_data:
+                    result_data['status'] = 'success'
+                
+                logger.info(f"关联分析执行成功，响应包含字段: {list(result_data.keys())}")
+                
                 return AlgorithmExecutionResponse(
                     result=result_data,
                     status="success",
@@ -493,13 +519,14 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                     readable_result=None  # 🆕 设置为None，系统会自动调用大模型分析
                 )
             else:
-                error_msg = result_data.get('error', result_data.get('message', '未知错误'))
-                logger.error(f"关联分析返回错误状态: {result_data}")
+                # 响应格式不符合预期
+                error_msg = result_data.get('message', '响应格式不符合预期')
+                logger.error(f"关联分析返回未知格式: {result_data}")
                 return AlgorithmExecutionResponse(
                     result=result_data,
                     status="error",
                     message=f"关联分析执行失败: {error_msg}",
-                    readable_result=None  # 🆕 错误情况下也会自动生成分析
+                    readable_result=None
                 )
         
         except Exception as e:
@@ -508,7 +535,7 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                 result={},
                 status="error",
                 message=f"关联分析执行失败: {str(e)}",
-                readable_result=None  # 🆕 异常情况下也会自动处理
+                readable_result=None
             )
     
     # =========================================================================
@@ -545,11 +572,18 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             )
             
             logger.info("趋势分析算法执行成功")
-            logger.info(f"算法返回状态: {result_data.get('status', 'unknown')}")
+            
+            # 检查响应格式：支持 'status' 或其他成功标识
+            status = result_data.get('status', 'unknown')
             
             # 🆕 新版本：设置 readable_result=None，系统会自动调用大模型分析
-            if result_data.get('status') == 'success':
-                logger.info("趋势分析结果获取成功")
+            if status == 'success' or (status == 'unknown' and result_data and 'error' not in result_data):
+                # 统一添加status字段，确保与其他算法响应格式一致
+                if 'status' not in result_data:
+                    result_data['status'] = 'success'
+                
+                logger.info(f"趋势分析执行成功，响应包含字段: {list(result_data.keys())}")
+                
                 return AlgorithmExecutionResponse(
                     result=result_data,
                     status="success",
@@ -665,10 +699,17 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             )
             
             logger.info("单变量预测算法执行成功")
-            logger.info(f"算法返回状态: {result_data.get('success', 'unknown')}")
             
-            # 🆕 新版本：设置 readable_result=None，系统会自动调用大模型分析
-            if result_data.get('success'):
+            # 检查响应格式：支持 'success' 或 'status' 字段
+            is_success = result_data.get('success', False) or result_data.get('status') == 'success'
+            
+            if is_success:
+                # 统一添加status字段，确保与其他算法响应格式一致
+                if 'status' not in result_data:
+                    result_data['status'] = 'success'
+                
+                logger.info(f"单变量预测执行成功，响应包含字段: {list(result_data.keys())}")
+                
                 return AlgorithmExecutionResponse(
                     result=result_data,
                     status="success",
@@ -676,7 +717,7 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                     readable_result=None  # 🆕 自动调用大模型分析
                 )
             else:
-                error_msg = result_data.get('message', '未知错误')
+                error_msg = result_data.get('message', result_data.get('error', '未知错误'))
                 logger.error(f"单变量预测执行失败: {error_msg}")
                 return AlgorithmExecutionResponse(
                     result=result_data,
@@ -719,10 +760,17 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             )
             
             logger.info("多变量预测算法执行成功")
-            logger.info(f"算法返回状态: {result_data.get('success', 'unknown')}")
             
-            # 🆕 新版本：设置 readable_result=None，系统会自动调用大模型分析
-            if result_data.get('success'):
+            # 检查响应格式：支持 'success' 或 'status' 字段
+            is_success = result_data.get('success', False) or result_data.get('status') == 'success'
+            
+            if is_success:
+                # 统一添加status字段，确保与其他算法响应格式一致
+                if 'status' not in result_data:
+                    result_data['status'] = 'success'
+                
+                logger.info(f"多变量预测执行成功，响应包含字段: {list(result_data.keys())}")
+                
                 return AlgorithmExecutionResponse(
                     result=result_data,
                     status="success",
@@ -730,7 +778,7 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                     readable_result=None  # 🆕 自动调用大模型分析
                 )
             else:
-                error_msg = result_data.get('message', '未知错误')
+                error_msg = result_data.get('message', result_data.get('error', '未知错误'))
                 logger.error(f"多变量预测执行失败: {error_msg}")
                 return AlgorithmExecutionResponse(
                     result=result_data,
@@ -781,6 +829,12 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             failure_count = result_data.get('失败数量', 0)
             
             if success_count > 0:
+                # 统一添加status字段，确保与其他算法响应格式一致
+                if 'status' not in result_data:
+                    result_data['status'] = 'success'
+                
+                logger.info(f"统一多算法分析执行成功，响应包含字段: {list(result_data.keys())}")
+                
                 # 使用返回的"解释"字段作为readable_result
                 explanation = result_data.get('解释', '')
                 

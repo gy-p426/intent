@@ -266,7 +266,7 @@
           "description": "分析模式：bivariate(二元，2列)、pairwise(两两，≥3列)、multivariate(综合，≥3列，第一列为因变量)，auto时根据列数自动推断"
         }
       ],
-      "data_format": "multi_columns",
+      "data_format": "tabular",
       "sql_template": "SELECT {columns} FROM {table_name} WHERE {conditions}",
       "payload_structure": {
         "data": "列数据数组，格式为[{name: 列名, values: [值...]}, ...]",
