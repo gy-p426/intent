@@ -634,7 +634,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                             "algorithm_type": algorithm_type.value,
                                             "algorithm_result": task_response.result,
                                             "task_id": task_response.task_id,
-                                            "message": "算法执行完成"
+                                            "message": "算法执行完成，正在将算法结果转化为自然语言"
                                         },
                                         timestamp=datetime.utcnow()
                                     )
@@ -677,7 +677,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                 algorithm_type_chinese = ALGORITHM_TYPE_CHINESE_MAP.get(algorithm_type, algorithm_type.value)
                                 algorithm_execution_data = {
                                     # "algorithm_result": algorithm_result,
-                                    "message": f"{algorithm_type_chinese}算法执行完成",
+                                    "message": f"{algorithm_type_chinese}算法执行完成，正在将算法结果转化为自然语言",
                                     "execution_summary": self._generate_algorithm_summary(algorithm_type, algorithm_result)
                                 }
                                 

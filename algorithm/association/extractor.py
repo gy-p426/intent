@@ -42,12 +42,12 @@ class AssociationExtractor(BaseAlgorithmExtractor):
 重要：你必须严格按照以下规则输出JSON,确保列名完全匹配数据库中的实际列名。
 
 多元关联分析支持三种模式：
-1. **bivariate(二元关联分析)**: 分析两个变量之间的关联关系
+1. bivariate(二元关联分析): 分析两个变量之间的关联关系
    - 要求：恰好2列
    - 方法：卡方检验/相关性分析/方差分析(自动选择)
    - 关键词识别：分析A和B的关系、A与B是否相关、A和B有什么关联
    
-2. **pairwise(多变量两两关联分析)**: 分析多个变量之间的两两关联关系
+2. pairwise(多变量两两关联分析): 分析多个变量之间的两两关联关系
    - 要求：至少3列
    - 方法：互信息(MI)
    - 适用场景：找出多个变量中哪些相互关联,探索性分析
@@ -58,8 +58,8 @@ class AssociationExtractor(BaseAlgorithmExtractor):
      * "找出相关的变量" - 不区分因变量和自变量
    - 特点：所有变量地位平等,没有因变量的概念
    
-3. **multivariate(多变量综合关联分析)**: 分析多个自变量与一个因变量的综合关联
-   - 要求：至少3列,第一列为因变量
+3. multivariate(多变量综合关联分析): 分析多个自变量与一个因变量的综合关联
+   - 要求：至少3列
    - 方法：条件互信息(CMI) + 回归分析
    - 适用场景：分析哪些因素影响某个目标变量,有明确的目标
    - 关键词识别：
@@ -140,6 +140,7 @@ class AssociationExtractor(BaseAlgorithmExtractor):
 严格输出规则：
 1. **columns必须是数据库中实际存在的列注释**
    - 必须从上面提供的数据库可用列信息中选择
+   - 若analysis_mode为multivariate，columns的第一个参数必须为因变量
    - 不要创造不存在的列注释
    - 优先选择有注释说明的列
 2. **required_columns必须与columns完全一致**
