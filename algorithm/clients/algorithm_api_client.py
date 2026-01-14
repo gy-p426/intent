@@ -60,6 +60,7 @@ class AlgorithmAPIClient:
             'alert': self.settings.alert_service_name,
             'recommendation': self.settings.recommendation_service_name,
             'compare_proportion' : self.settings.compare_proportion_service_name,
+            'multi_analysis': self.settings.trend_service_name,  # 统一多算法分析，复用 forecast_service（与 trend 同服务）
         }
         
         # 静态URL映射（降级使用）
@@ -79,6 +80,7 @@ class AlgorithmAPIClient:
             'alert': self.settings.alert_api_url,
             'recommendation': self.settings.recommendation_api_url,
             'compare_proportion': self.settings.compare_proportion_api_url,
+            'multi_analysis': self.settings.trend_api_url,  # 统一多算法分析，复用 forecast_service（与 trend 同服务）
         }
         
         logger.info(f"算法API客户端初始化完成，服务发现模式: {self.settings.service_discovery_mode}")
@@ -665,7 +667,7 @@ class AlgorithmAPIClient:
         # 移除 None 值的参数
         payload = {k: v for k, v in payload.items() if v is not None}
         
-        return await self.call_algorithm_api("trend", "/api/v1/trend/multi-analysis", "POST", payload)
+        return await self.call_algorithm_api("multi_analysis", "/api/v1/trend/multi-analysis", "POST", payload)
     
     async def query_task_status(self, algorithm_type: str, task_id: str) -> Dict[str, Any]:
         """
