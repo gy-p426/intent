@@ -64,6 +64,104 @@ MULTI_ANALYSIS_CONFIG = {
             "type": "boolean",
             "description": "是否返回简化结果（仅包含解释和关键指标）",
             "default": False
+        },
+        {
+            "name": "time_range_info",
+            "type": "object",
+            "description": "时间范围扩展信息，用于记录LLM自动扩展的查询时间范围",
+            "default": None,
+            "structure": {
+                "analysis_type": {
+                    "type": "string",
+                    "description": "分析类型：periodicity/period_over_period/year_over_year/base_period_index"
+                },
+                "period_type": {
+                    "type": "string",
+                    "description": "周期类型：hour/day/week/month/quarter/year"
+                },
+                "expanded_range": {
+                    "type": "object",
+                    "description": "扩展后的时间范围",
+                    "properties": {
+                        "start": {"type": "string", "description": "起始日期，格式：YYYY-MM-DD 或 YYYY-MM 或 YYYY"},
+                        "end": {"type": "string", "description": "结束日期，格式：YYYY-MM-DD 或 YYYY-MM 或 YYYY"}
+                    }
+                },
+                "current_period": {
+                    "type": "object",
+                    "description": "当前周期（环比/同比分析使用）",
+                    "properties": {
+                        "year": {"type": "integer"},
+                        "month": {"type": "integer", "range": "1-12"},
+                        "day": {"type": "integer", "range": "1-31"},
+                        "week": {"type": "integer", "range": "1-53"},
+                        "quarter": {"type": "integer", "range": "1-4"},
+                        "hour": {"type": "integer", "range": "0-23"}
+                    }
+                },
+                "previous_period": {
+                    "type": "object",
+                    "description": "上一周期（环比分析使用）"
+                },
+                "same_period_last_year": {
+                    "type": "object",
+                    "description": "去年同期（同比分析使用）"
+                },
+                "base_period": {
+                    "type": "object",
+                    "description": "基期（定基比分析使用）"
+                },
+                "target_periods": {
+                    "type": "array",
+                    "description": "目标周期列表（定基比分析使用）"
+                },
+                "min_data_points": {
+                    "type": "integer",
+                    "description": "最少数据点数（周期性分析使用）",
+                    "default": 8
+                }
+            },
+            "examples": [
+                {
+                    "description": "环比分析 - 8月与7月对比",
+                    "value": {
+                        "analysis_type": "period_over_period",
+                        "period_type": "month",
+                        "current_period": {"year": 2025, "month": 8},
+                        "previous_period": {"year": 2025, "month": 7},
+                        "expanded_range": {"start": "2025-07-01", "end": "2025-08-31"}
+                    }
+                },
+                {
+                    "description": "同比分析 - 2025年8月与2024年8月对比",
+                    "value": {
+                        "analysis_type": "year_over_year",
+                        "period_type": "month",
+                        "current_period": {"year": 2025, "month": 8},
+                        "same_period_last_year": {"year": 2024, "month": 8},
+                        "expanded_range": {"start": "2024-08-01", "end": "2025-08-31"}
+                    }
+                },
+                {
+                    "description": "定基比分析 - 以2020年为基期",
+                    "value": {
+                        "analysis_type": "base_period_index",
+                        "period_type": "year",
+                        "base_period": {"year": 2020},
+                        "target_periods": [{"year": 2021}, {"year": 2022}, {"year": 2023}, {"year": 2024}, {"year": 2025}],
+                        "expanded_range": {"start": "2020-01-01", "end": "2025-12-31"}
+                    }
+                },
+                {
+                    "description": "周期性分析 - 确保至少8个数据点",
+                    "value": {
+                        "analysis_type": "periodicity",
+                        "period_type": "month",
+                        "min_data_points": 8,
+                        "expanded_range": {"start": "2025-01-01", "end": "2025-08-31"}
+                    }
+                }
+            ]
         }
     ],
     "data_requirements": {
@@ -78,7 +176,11 @@ MULTI_ANALYSIS_CONFIG = {
         "分析今年与去年同期的业绩对比",
         "以2020年为基期计算各年度指数",
         "综合分析销售数据的周期性、环比和同比变化",
-        "分析出车数据的周期性和环比变化"
+        "分析出车数据的周期性和环比变化",
+        "分析8月销售额的环比变化（自动扩展查询7月和8月数据）",
+        "对比2025年Q2与去年同期的业绩（自动扩展查询2024年Q2和2025年Q2数据）",
+        "分析本周出车次数与上周的对比",
+        "以2020年1月为基期，计算到2025年8月的销售指数"
     ],
     "preprocessing_options": {
         "handle_missing": True,
