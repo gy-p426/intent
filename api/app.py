@@ -21,6 +21,7 @@ from api.models import (
 )
 from services.intent_recognition_service import IntentRecognitionService
 from api.algorithm_api import algorithm_api
+from api.favorite_api import router as favorite_router
 from algorithm.logging import get_monitoring_integration
 
 
@@ -63,6 +64,9 @@ class IntentRecognitionAPI:
         
         # 注册算法集成路由
         algorithm_api.register_routes(self.app)
+        
+        # 注册收藏管理路由
+        self.app.include_router(favorite_router)
         
         # 注册算法服务专用健康检查路由
         self._register_algorithm_health_routes()
