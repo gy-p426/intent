@@ -433,6 +433,21 @@ class Settings(BaseSettings):
         default="root",
         description="MySQL密码"
     )
+    
+    # Agent算法分析配置
+    agent_algorithm_analysis_url: str = Field(
+        default="http://localhost:8010",
+        description="Agent算法分析服务地址"
+    )
+    agent_algorithm_analysis_timeout: int = Field(
+        default=300,
+        description="Agent算法分析超时时间（秒）",
+        ge=30
+    )
+    enable_agent_algorithm_analysis: bool = Field(
+        default=True,
+        description="是否启用Agent算法分析"
+    )
 
     class Config:
         env_file = ".env"
