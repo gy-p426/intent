@@ -177,7 +177,7 @@ class MultiAnalysisProcessor(BaseAlgorithmProcessor):
             return False
     
     async def _validate_data_quality(self, data_rows: List[Dict[str, Any]]) -> bool:
-        """验证数据质量"""
+        """验证数据质量（增强版）"""
         # 检查数值型数据比例
         numeric_count = 0
         total_count = len(data_rows)
@@ -195,6 +195,43 @@ class MultiAnalysisProcessor(BaseAlgorithmProcessor):
         if numeric_ratio < 0.8:
             logger.error(f"数值数据比例过低: {numeric_ratio:.2%}")
             return False
+        
+        # 增强验证：检查数据量是否足够进行可靠分析
+        if total_count < 8:
+            logger.error(f"数据点太少，无法进行可靠的综合分析，当前: {total_count}，建议至少30个数据点")
+            return False
+        
+        # 警告：数据点较少时提醒用户
+        if total_count < 30:
+            logger.warning(f"数据点较少({total_count}个)，分析结果可能不够可靠，建议收集更多数据")
+        
+        # 检查数据分布的时间跨度合理性
+        try:
+            timestamps = []
+            for row in data_rows:
+                timestamp_str = row.get('timestamp')
+                if timestamp_str:
+                    # 尝试解析时间戳
+                    import pandas as pd
+                    timestamps.append(pd.to_datetime(timestamp_str))
+            
+            if len(timestamps) >= 2:
+                time_span = (max(timestamps) - min(timestamps)).days
+                
+                # 检查时间跨度与数据点数的合理性
+                if time_span > 0:
+                    points_per_day = total_count / time_span
+                    
+                    # 如果数据过于稀疏（平均每天少于0.1个数据点），发出警告
+                    if points_per_day < 0.1:
+                        logger.warning(f"数据过于稀疏，时间跨度{time_span}天但只有{total_count}个数据点，分析结果可能不可靠")
+                    
+                    # 如果时间跨度太短（少于7天）但要做周期性分析，发出警告
+                    if time_span < 7 and total_count < 50:
+                        logger.warning(f"时间跨度较短({time_span}天)且数据点较少({total_count}个)，周期性分析结果可能不准确")
+        
+        except Exception as e:
+            logger.warning(f"时间跨度验证失败: {e}")
         
         return True
     
