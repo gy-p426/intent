@@ -30,6 +30,7 @@ from algorithm.error_handler import (
 from llm.algorithm_result_analyzer import AlgorithmResultAnalyzer
 from llm.llm_client import LLMClient
 from infrastructure.config import get_settings
+from algorithm.agent import normalize_question_for_agent
 
 
 logger = logging.getLogger(__name__)
@@ -139,7 +140,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         window_id: str, 
         session_id: str,
         user_id: Optional[str] = None,
-        auto_analysis: Optional[bool] = None
+        auto_analysis: Optional[bool] = None,
+        agent_algorithm: bool = False  # 新增参数
     ) -> AlgorithmResponseGenerator:
         """
         处理算法请求的主要方法
@@ -149,6 +151,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             window_id: 窗口ID
             session_id: 会话ID
             user_id: 用户ID（可选）
+            auto_analysis: 是否自动分析
+            agent_algorithm: 是否使用Agent算法分析（新增）
             
         Yields:
             AlgorithmResponse: 流式响应数据
@@ -167,7 +171,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             'user_id': user_id,
             'trace_id': trace_id,
             'start_time': datetime.utcnow(),
-            'auto_analysis': auto_analysis
+            'auto_analysis': auto_analysis,
+            'agent_algorithm': agent_algorithm  # 新增
         }
         
         try:
@@ -182,13 +187,21 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 question, window_id, session_id, trace_id, user_id
             )
             
-            logger.info(f"开始处理算法请求: {question[:100]}...", extra={'trace_id': trace_id})
+            logger.info(f"开始处理算法请求: {question[:100]}..., agent_algorithm={agent_algorithm}", extra={'trace_id': trace_id})
             
-            # 使用错误处理包装整个处理流程
-            async for response in self._process_with_error_handling(
-                question, window_id, session_id, request_context
-            ):
-                yield response
+            # === 判断是否使用Agent分析 ===
+            if agent_algorithm:
+                # 使用Agent算法分析流程
+                async for response in self._process_agent_algorithm(
+                    question, window_id, session_id, request_context
+                ):
+                    yield response
+            else:
+                # 使用传统算法流程（带错误处理）
+                async for response in self._process_with_error_handling(
+                    question, window_id, session_id, request_context
+                ):
+                    yield response
                 
         except AlgorithmError as e:
             logger.error(f"算法处理错误: {e.message}", extra=request_context)
@@ -309,6 +322,195 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         
         logger.info(f"[手动模式] 为算法类型 {algorithm_type.value} 构建的 required_columns: {required_columns}")
         return required_columns
+    
+    async def _process_agent_algorithm(
+        self,
+        question: str,
+        window_id: str,
+        session_id: str,
+        request_context: Dict[str, Any]
+    ) -> AlgorithmResponseGenerator:
+        """
+        Agent算法分析流程（SSE纯透传）
+        
+        Args:
+            question: 用户问题
+            window_id: 窗口ID
+            session_id: 会话ID
+            request_context: 请求上下文
+            
+        Yields:
+            AlgorithmResponse: 流式响应数据
+        """
+        from algorithm.models import AlgorithmResponse, StreamingStep, NL2SQLRequest
+        from algorithm.processors.csv_converter import CSVConverter
+        from algorithm.clients.agent_algorithm_client import AgentAlgorithmClient
+        from algorithm.error_handler import AlgorithmExecutionError
+        from algorithm.agent import get_candidate_tables_from_nl2sql
+        
+        trace_id = request_context.get('trace_id', 'unknown')
+        
+        try:
+            # Step 0: 获取候选表信息并进行问题标准化
+            logger.info("Agent分析: 开始获取候选表信息", extra={'trace_id': trace_id})
+            yield AlgorithmResponse(
+                step=StreamingStep.ALGORITHM_IDENTIFICATION,
+                status="processing",
+                data={"message": "正在分析数据库结构..."},
+                timestamp=datetime.utcnow()
+            )
+            
+            # 从NL2SQL服务获取候选表信息
+            candidate_tables_info, query_db_result = await get_candidate_tables_from_nl2sql(
+                question, window_id, self.nl2sql_client
+            )
+            
+            logger.info(f"Agent分析: 候选表信息获取完成", extra={'trace_id': trace_id})
+            
+            # 使用候选表信息进行问题标准化
+            logger.info("Agent分析: 开始问题标准化", extra={'trace_id': trace_id})
+            yield AlgorithmResponse(
+                step=StreamingStep.ALGORITHM_IDENTIFICATION,
+                status="processing",
+                data={"message": "正在处理用户问题..."},
+                timestamp=datetime.utcnow()
+            )
+            
+            # 调用大模型对问题进行标准化处理（结合候选表信息）
+            normalized_question = await normalize_question_for_agent(
+                question, 
+                window_id, 
+                candidate_tables_info
+            )
+            
+            logger.info(f"Agent分析: 问题标准化完成 - 原始: {question[:50]}... -> 标准化: {normalized_question[:50]}...", 
+                       extra={'trace_id': trace_id})
+            
+            yield AlgorithmResponse(
+                step=StreamingStep.ALGORITHM_IDENTIFICATION,
+                status="completed",
+                data={
+                    "normalized_query": normalized_question,
+                    "message": "问题处理完成"
+                },
+                timestamp=datetime.utcnow()
+            )
+            
+            # Step 1: SQL生成与执行
+            logger.info("Agent分析: 开始SQL查询", extra={'trace_id': trace_id})
+            yield AlgorithmResponse(
+                step=StreamingStep.SQL_GENERATION,
+                status="processing",
+                data={"message": "正在生成SQL查询..."},
+                timestamp=datetime.utcnow()
+            )
+            
+            # 使用候选表信息调用NL2SQL服务（避免重复调用query-db）
+            candidate_tables = query_db_result.get('candidateTables', [])
+            keywords = query_db_result.get('keywords', {})
+            
+            if candidate_tables:
+                logger.info("Agent分析: 使用已获取的候选表信息生成SQL", extra={'trace_id': trace_id})
+                nl2sql_response = await self._query_nl2sql_with_candidates_retry(
+                    normalized_question,
+                    candidate_tables,
+                    keywords,
+                    window_id,
+                    session_id
+                )
+            else:
+                logger.info("Agent分析: 使用完整NL2SQL流程", extra={'trace_id': trace_id})
+                nl2sql_request = NL2SQLRequest(
+                    question=normalized_question,
+                    window_id=window_id,
+                    session_id=session_id
+                )
+                nl2sql_response = await self._query_nl2sql_with_retry(nl2sql_request)
+            
+            yield AlgorithmResponse(
+                step=StreamingStep.DATA_RETRIEVAL,
+                status="completed",
+                data={
+                    "data_rows_count": len(nl2sql_response.execution_result),
+                    "sql_statement": nl2sql_response.sql_statement,
+                    "message": f"数据检索完成，获取到 {len(nl2sql_response.execution_result)} 行数据"
+                },
+                timestamp=datetime.utcnow()
+            )
+            # logger.info(f"SQL查询完成: {nl2sql_response.sql_statement}", extra={'trace_id': trace_id})
+            
+            # Step 2: 转换为CSV
+            logger.info("Agent分析: 转换数据为CSV", extra={'trace_id': trace_id})
+            try:
+                csv_data = CSVConverter.convert_to_csv(nl2sql_response.execution_result)
+                logger.info(f"CSV转换成功: {len(csv_data)} bytes", extra={'trace_id': trace_id})
+            except Exception as e:
+                logger.error(f"CSV转换失败: {str(e)}", extra={'trace_id': trace_id})
+                raise AlgorithmExecutionError(
+                    f"数据格式转换失败: {str(e)}",
+                    details={'trace_id': trace_id}
+                )
+            
+            # Step 3: 调用Agent服务并透传事件
+            logger.info("Agent分析: 开始调用Agent服务", extra={'trace_id': trace_id})
+            yield AlgorithmResponse(
+                step=StreamingStep.AGENT_ALGORITHM_ANALYSIS,
+                status="started",
+                data={"message": "正在启动Agent算法分析..."},
+                timestamp=datetime.utcnow()
+            )
+            
+            agent_client = AgentAlgorithmClient(
+                base_url=self.settings.agent_algorithm_analysis_url,
+                timeout=self.settings.agent_algorithm_analysis_timeout
+            )
+            
+            try:
+                # 流式接收并透传Agent事件
+                async for agent_event in agent_client.analyze_streaming(
+                    question=question,
+                    csv_data=csv_data
+                ):
+                    # 原封不动地透传Agent事件
+                    yield AlgorithmResponse(
+                        step=StreamingStep.AGENT_ALGORITHM_ANALYSIS,
+                        status="processing",
+                        data={"agent_event": agent_event},  # 完整的Agent事件
+                        timestamp=datetime.utcnow()
+                    )
+                    
+                    # 检查是否完成
+                    if agent_event.get("event_type") == "workflow_complete":
+                        logger.info("Agent工作流完成", extra={'trace_id': trace_id})
+                        # yield AlgorithmResponse(
+                        #     step=StreamingStep.COMPLETED,
+                        #     status="completed",
+                        #     data={
+                        #         "agent_result": agent_event.get("data"),
+                        #         "message": "Agent算法分析完成"
+                        #     },
+                        #     timestamp=datetime.utcnow()
+                        # )
+                        break
+                    
+                    # 检查错误
+                    elif agent_event.get("event_type") in ["workflow_error", "phase_error"]:
+                        error_msg = agent_event.get("data", {}).get("error", "未知错误")
+                        logger.error(f"Agent分析失败: {error_msg}", extra={'trace_id': trace_id})
+                        raise AlgorithmExecutionError(f"Agent分析失败: {error_msg}")
+            
+            finally:
+                await agent_client.close()
+                
+        except AlgorithmExecutionError:
+            raise
+        except Exception as e:
+            logger.error(f"Agent算法分析异常: {str(e)}", extra={'trace_id': trace_id}, exc_info=True)
+            raise AlgorithmExecutionError(
+                f"Agent算法分析异常: {str(e)}",
+                details={'trace_id': trace_id},
+                original_error=e
+            )
 
     async def _process_with_error_handling(
         self,

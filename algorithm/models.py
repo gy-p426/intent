@@ -48,6 +48,7 @@ class StreamingStep(str, Enum):
     DATA_RETRIEVAL = "data_retrieval"
     ALGORITHM_EXECUTION = "algorithm_execution"
     TASK_POLLING = "task_polling"
+    AGENT_ALGORITHM_ANALYSIS = "agent_algorithm_analysis"  # Agent算法分析步骤
     COMPLETED = "completed"
     ERROR = "error"
 
@@ -94,6 +95,7 @@ class AlgorithmRequest(BaseModel):
     # None/True: 走现有自动分析；False: 手动选择数据库信息（新增交互步骤2.1）
     auto_analysis: Optional[bool] = Field(default=None, description="是否自动分析；None/true=自动；false=手动选择数据库信息")
     stream: bool = Field(default=True, description="是否流式返回")
+    agent_algorithm: bool = Field(default=False, description="是否使用Agent算法分析")  # 新增
 
 
 class AlgorithmParameters(BaseModel):

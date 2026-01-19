@@ -742,7 +742,7 @@
     },
     "multi_analysis": {
       "name": "统一多算法分析",
-      "description": "统一多算法分析接口，支持一次调用执行多种时间序列分析：周期性分析、环比分析、同比分析、定基比分析",
+      "description": "统一多算法分析接口，支持一次调用执行多种时间序列分析：周期性分析、环比分析、同比分析、定基比分析。系统会根据分析类型自动扩展查询时间范围以获取完整的对比数据。",
       "api_endpoint": "/api/v1/trend/multi-analysis",
       "method": "POST",
       "required_fields": [
@@ -801,6 +801,76 @@
           "type": "boolean",
           "default": false,
           "description": "是否返回简化结果（仅包含解释和关键指标）"
+        },
+        {
+          "field": "time_range_info",
+          "type": "object",
+          "default": null,
+          "description": "时间范围扩展信息，由LLM根据分析类型自动生成，包含目标周期、对比周期和扩展后的查询范围",
+          "structure": {
+            "analysis_type": "分析类型：period_over_period/year_over_year/base_period_index/periodicity",
+            "period_type": "周期类型：hour/day/week/month/quarter/year",
+            "target_period": "目标周期，如 {year: 2025, month: 8}",
+            "comparison_period": "对比周期（环比时为上一周期，同比时为去年同期）",
+            "base_period": "基期（定基比分析时使用）",
+            "expanded_range": {
+              "start": "扩展后的开始日期，如 2025-07-01",
+              "end": "扩展后的结束日期，如 2025-08-31"
+            }
+          },
+          "time_range_expansion_rules": {
+            "period_over_period": {
+              "description": "环比分析：自动扩展查询范围包含上一周期",
+              "examples": [
+                {"user_input": "8月", "expanded_range": "7月+8月"},
+                {"user_input": "本周", "expanded_range": "上周+本周"},
+                {"user_input": "Q2", "expanded_range": "Q1+Q2"},
+                {"user_input": "2025年", "expanded_range": "2024年+2025年"}
+              ]
+            },
+            "year_over_year": {
+              "description": "同比分析：自动扩展查询范围包含去年同期",
+              "examples": [
+                {"user_input": "2025年8月", "expanded_range": "2024年8月+2025年8月"},
+                {"user_input": "今年Q2", "expanded_range": "去年Q2+今年Q2"},
+                {"user_input": "2025年", "expanded_range": "2024年+2025年"}
+              ]
+            },
+            "base_period_index": {
+              "description": "定基比分析：扩展查询范围从基期到目标周期",
+              "examples": [
+                {"user_input": "基期2020年，目标2025年", "expanded_range": "2020年至2025年"},
+                {"user_input": "基期1月，目标8月", "expanded_range": "1月至8月"}
+              ]
+            },
+            "periodicity": {
+              "description": "周期性分析：确保至少8个数据点",
+              "examples": [
+                {"user_input": "分析周期性", "expanded_range": "自动扩展以获取足够数据点"}
+              ]
+            }
+          },
+          "time_expression_mapping": {
+            "relative": {
+              "本月": "当前月份",
+              "上月": "上一个月",
+              "这个月": "当前月份",
+              "上个月": "上一个月",
+              "本周": "当前周",
+              "上周": "上一周",
+              "今年": "当前年份",
+              "去年": "上一年",
+              "本季度": "当前季度",
+              "上季度": "上一季度"
+            },
+            "absolute": {
+              "2025年8月": "{year: 2025, month: 8}",
+              "8月份": "{year: 当前年, month: 8}",
+              "Q1": "{quarter: 1}",
+              "第一季度": "{quarter: 1}",
+              "2025年Q2": "{year: 2025, quarter: 2}"
+            }
+          }
         }
       ],
       "data_format": "time_series",
@@ -815,29 +885,46 @@
           "period_type": "周期类型",
           "base_period": "基期标识",
           "base_value": "基期指数值",
-          "simplified": "是否简化输出"
+          "simplified": "是否简化输出",
+          "time_range_info": "时间范围扩展信息（由LLM自动生成）"
         }
       },
       "sub_algorithms": {
         "periodicity": {
           "name": "周期性分析",
-          "description": "检测数据的周期性规律",
+          "description": "检测数据的周期性规律，需要至少8个数据点",
+          "time_range_rule": "确保查询范围至少包含8个数据点",
           "examples": ["分析销售数据是否存在周期性规律", "检测出车次数有没有周期性"]
         },
         "period_over_period": {
           "name": "环比分析",
-          "description": "与上一周期对比（如本月vs上月）",
-          "examples": ["分析本月销售额与上月的环比变化", "对比本周和上周的出车次数"]
+          "description": "与上一周期对比（如本月vs上月），系统自动扩展查询范围包含上一周期数据",
+          "time_range_rule": "用户指定目标周期P → 查询范围扩展为P-1和P",
+          "examples": [
+            "对2025年8月的出车次数进行环比分析",
+            "分析本月销售额与上月的环比变化",
+            "对比本周和上周的出车次数"
+          ]
         },
         "year_over_year": {
           "name": "同比分析",
-          "description": "与去年同期对比（如今年3月vs去年3月）",
-          "examples": ["分析今年销售额与去年同期的对比", "计算出车次数的同比增长率"]
+          "description": "与去年同期对比（如今年3月vs去年3月），系统自动扩展查询范围包含去年同期数据",
+          "time_range_rule": "用户指定目标周期P（年份Y）→ 查询范围扩展为Y-1的P和Y的P",
+          "examples": [
+            "对2025年8月的销售额进行同比分析",
+            "分析今年销售额与去年同期的对比",
+            "计算出车次数的同比增长率"
+          ]
         },
         "base_period_index": {
           "name": "定基比分析",
-          "description": "以固定基期计算指数",
-          "examples": ["以2020年为基期计算各年度销售指数", "以1月为基准分析各月的出车指数"]
+          "description": "以固定基期计算指数，系统自动扩展查询范围从基期到目标周期",
+          "time_range_rule": "用户指定基期B和目标周期T → 查询范围为B到T的连续数据",
+          "examples": [
+            "以2020年为基期分析2025年的销售指数",
+            "以1月为基准计算8月的出车指数",
+            "以2020年为基期计算各年度销售指数"
+          ]
         }
       },
       "examples": [
@@ -846,7 +933,10 @@
         "分析今年与去年同期的业绩对比",
         "以2020年为基期计算各年度指数",
         "综合分析出车数据的周期性和环比变化",
-        "全面分析销售数据的变化规律"
+        "全面分析销售数据的变化规律",
+        "对2025年8月的出车次数进行环比分析",
+        "对2025年8月的销售额进行同比分析",
+        "以2020年为基期分析2025年的销售指数"
       ]
     }
   },
