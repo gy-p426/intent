@@ -133,11 +133,6 @@ def register_all_algorithms(nl2sql_client=None):
         from algorithm.compare_proportion.processor import CompareProportionProcessor
         algorithm_registry.register_algorithm(CompareProportionExtractor(nl2sql_client), CompareProportionProcessor())
         
-        # 统一多算法分析（周期性、环比、同比、定基比）
-        from algorithm.multi_analysis.extractor import MultiAnalysisExtractor
-        from algorithm.multi_analysis.processor import MultiAnalysisProcessor
-        algorithm_registry.register_algorithm(MultiAnalysisExtractor(nl2sql_client), MultiAnalysisProcessor())
-        
         logger.info("所有算法注册完成")
         
     except ImportError as e:

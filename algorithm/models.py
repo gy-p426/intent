@@ -28,7 +28,6 @@ class AlgorithmType(str, Enum):
     ALERT = "alert"
     RECOMMEND = "recommend"
     COMPARE_PROPORTION = "compare_proportion"
-    MULTI_ANALYSIS = "multi_analysis"  # 统一多算法分析（周期性、环比、同比、定基比）
 
 
 class ResponseFormat(str, Enum):

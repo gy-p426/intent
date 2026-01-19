@@ -1573,14 +1573,6 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                     retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
                     context={'operation': 'similarity_execution', 'algorithm_type': algorithm_type.value}
                 )
-            elif algorithm_type == AlgorithmType.MULTI_ANALYSIS:
-                return await self.retry_handler.retry_async(
-                    self.algorithm_executor.execute_multi_analysis,
-                    algorithm_request,
-                    config=self.retry_configs['algorithm_api'],
-                    retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
-                    context={'operation': 'multi_analysis_execution', 'algorithm_type': algorithm_type.value}
-                )
             else:
                 raise AlgorithmExecutionError(
                     f"暂不支持的算法类型: {algorithm_type}",
