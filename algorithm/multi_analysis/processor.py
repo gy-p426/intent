@@ -146,9 +146,12 @@ class MultiAnalysisProcessor(BaseAlgorithmProcessor):
                 logger.error("数据行为空")
                 return False
             
-            # 验证数据点数量（至少需要2个数据点）
-            if len(data_rows) < 2:
-                logger.error(f"数据点太少，至少需要2个数据点，当前: {len(data_rows)}")
+            # 验证数据点数量（根据分析类型调整最小要求）
+            analysis_types = config.get('analysis_types', [])
+            min_required_points = self._get_min_required_points(analysis_types)
+            
+            if len(data_rows) < min_required_points:
+                logger.error(f"数据点太少，当前: {len(data_rows)}，{self._get_analysis_description(analysis_types)}至少需要{min_required_points}个数据点")
                 return False
             
             # 验证时间列和数值列
@@ -176,6 +179,38 @@ class MultiAnalysisProcessor(BaseAlgorithmProcessor):
             logger.error(f"统一多算法分析输入验证失败: {str(e)}")
             return False
     
+    def _get_min_required_points(self, analysis_types: List[str]) -> int:
+        """根据分析类型获取最小数据点要求"""
+        if not analysis_types:
+            return 8  # 默认要求
+        
+        # 不同分析类型的最小数据点要求
+        min_points_map = {
+            'year_over_year': 2,      # 同比分析：当前期+去年同期，2个数据点即可
+            'period_over_period': 2,  # 环比分析：当前期+上一期，2个数据点即可
+            'base_period_index': 2,   # 定基比分析：基期+目标期，至少2个数据点
+            'periodicity': 8          # 周期性分析：需要足够数据点检测周期
+        }
+        
+        # 取所有分析类型中要求最高的
+        max_required = max(min_points_map.get(analysis_type, 8) for analysis_type in analysis_types)
+        return max_required
+    
+    def _get_analysis_description(self, analysis_types: List[str]) -> str:
+        """获取分析类型的描述"""
+        if not analysis_types:
+            return "综合分析"
+        
+        descriptions = {
+            'year_over_year': '同比分析',
+            'period_over_period': '环比分析', 
+            'base_period_index': '定基比分析',
+            'periodicity': '周期性分析'
+        }
+        
+        type_names = [descriptions.get(t, t) for t in analysis_types]
+        return '、'.join(type_names)
+    
     async def _validate_data_quality(self, data_rows: List[Dict[str, Any]]) -> bool:
         """验证数据质量（增强版）"""
         # 检查数值型数据比例
@@ -191,15 +226,23 @@ class MultiAnalysisProcessor(BaseAlgorithmProcessor):
             logger.error("没有有效数据")
             return False
         
+        # 🚨 紧急修复：检查数据行数是否异常（可能是重复数据问题）
+        if total_count > 500:
+            logger.error(f"数据行数异常过多({total_count}行)，可能存在重复数据或SQL查询问题")
+            return False
+        
+        # 🚨 紧急修复：检查数据重复问题
+        duplicate_check = await self._check_data_duplication(data_rows)
+        if not duplicate_check:
+            return False
+        
         numeric_ratio = numeric_count / total_count
         if numeric_ratio < 0.8:
             logger.error(f"数值数据比例过低: {numeric_ratio:.2%}")
             return False
         
-        # 增强验证：检查数据量是否足够进行可靠分析
-        if total_count < 8:
-            logger.error(f"数据点太少，无法进行可靠的综合分析，当前: {total_count}，建议至少30个数据点")
-            return False
+        # 增强验证：检查数据量是否足够进行可靠分析（已在validate_algorithm_input中处理）
+        # 这里不再重复检查最小数据点，避免双重验证
         
         # 警告：数据点较少时提醒用户
         if total_count < 30:
@@ -232,6 +275,51 @@ class MultiAnalysisProcessor(BaseAlgorithmProcessor):
         
         except Exception as e:
             logger.warning(f"时间跨度验证失败: {e}")
+        
+        return True
+    
+    async def _check_data_duplication(self, data_rows: List[Dict[str, Any]]) -> bool:
+        """🚨 紧急修复：检查数据重复问题"""
+        if not data_rows:
+            return True
+        
+        # 检查是否所有数据都相同（重复数据问题的典型症状）
+        first_row = data_rows[0]
+        first_timestamp = first_row.get('timestamp')
+        first_value = first_row.get('value')
+        
+        identical_count = 0
+        for row in data_rows:
+            if (row.get('timestamp') == first_timestamp and 
+                row.get('value') == first_value):
+                identical_count += 1
+        
+        # 如果超过90%的数据都相同，认为是重复数据问题
+        if len(data_rows) > 10 and identical_count / len(data_rows) > 0.9:
+            logger.error(
+                f"检测到严重的数据重复问题：{len(data_rows)}行数据中有{identical_count}行完全相同 "
+                f"(timestamp='{first_timestamp}', value={first_value})。"
+                f"这通常是SQL查询缺少GROUP BY聚合导致的。"
+            )
+            return False
+        
+        # 检查时间戳重复率
+        timestamps = [row.get('timestamp') for row in data_rows if row.get('timestamp')]
+        unique_timestamps = set(timestamps)
+        
+        if len(timestamps) > 0:
+            duplicate_ratio = 1 - (len(unique_timestamps) / len(timestamps))
+            if duplicate_ratio > 0.8:
+                logger.error(
+                    f"时间戳重复率过高({duplicate_ratio:.1%})，总共{len(timestamps)}个时间戳但只有{len(unique_timestamps)}个唯一值。"
+                    f"这可能是SQL查询缺少GROUP BY导致的重复数据。"
+                )
+                return False
+        
+        # 如果检测到重复但不严重，进行去重
+        if identical_count > len(data_rows) * 0.5:
+            logger.warning(f"检测到{identical_count}行重复数据，将进行自动去重")
+            # 这里可以添加去重逻辑，但对于严重的重复问题，最好直接报错让用户修复SQL
         
         return True
     
