@@ -84,32 +84,48 @@ class MultiAnalysisExtractor(BaseAlgorithmExtractor):
 - 用户提到"定基"、"基期"、"以...为基准" → 包含 base_period_index
 - 用户提到"综合分析"、"全面分析" → 设置 include_all: true
 
-【时间范围扩展规则（重要！）】
-根据分析类型，必须自动扩展查询时间范围，以获取完整的对比数据：
+【主次分析识别规则（重要！）】
+当用户查询包含多种分析类型时，需要识别主要分析意图：
+1. 具体时间 + 环比/同比 → 以环比/同比为主（如"8月环比"以环比为主）
+2. 具体时间 + 周期性 → 以周期性为主（如"8月周期性"以周期性为主）
+3. 多种分析并列 → 优先级：环比 > 同比 > 定基比 > 周期性
+4. 全面/综合分析 → 以数据需求最大的分析为主
 
-1. 环比分析 (period_over_period) 时间扩展规则：
+主要分析类型决定时间范围扩展策略，辅助分析适应主要分析的时间范围。
+
+【时间范围扩展规则（重要！）】
+根据主要分析类型确定时间范围扩展策略，辅助分析适应主要分析的时间范围：
+
+主要分析类型识别：
+- 用户明确提到具体时间+环比（如"8月环比"）→ 环比为主要分析
+- 用户明确提到具体时间+同比（如"8月同比"）→ 同比为主要分析  
+- 用户只提到周期性分析 → 周期性为主要分析
+- 多种分析并列时优先级：环比 > 同比 > 定基比 > 周期性
+
+时间范围扩展策略：
+1. 环比分析为主要分析时：
    - 用户指定"8月" → 查询范围扩展为"7月+8月"（包含上一个月）
    - 用户指定"本周" → 查询范围扩展为"上周+本周"（包含上一周）
    - 用户指定"Q2" → 查询范围扩展为"Q1+Q2"（包含上一季度）
-   - 用户指定"2025年" → 查询范围扩展为"2024年+2025年"（包含上一年）
-   - 用户指定"8月15日" → 查询范围扩展为"8月14日+8月15日"（包含前一天）
    - 跨年处理：1月环比需要查询去年12月和今年1月
 
-2. 同比分析 (year_over_year) 时间扩展规则：
+2. 同比分析为主要分析时：
    - 用户指定"2025年8月" → 查询范围扩展为"2024年8月+2025年8月"（包含去年同月）
    - 用户指定"今年Q2" → 查询范围扩展为"去年Q2+今年Q2"（包含去年同季度）
-   - 用户指定"本周" → 查询范围扩展为"去年同周+本周"（包含去年同周）
-   - 用户指定"2025年" → 查询范围扩展为"2024年+2025年"（包含前一年）
 
-3. 定基比分析 (base_period_index) 时间扩展规则：
-   - 用户指定基期"2020年"，目标"2025年" → 查询范围为"2020年至2025年"（连续）
-   - 用户指定基期"1月"，目标"8月" → 查询范围为"1月至8月"（连续）
-   - 未指定基期时 → 使用数据中最早的周期作为默认基期
-
-4. 周期性分析 (periodicity) 数据量要求：
+3. 周期性分析为主要分析时：
    - 确保查询范围至少包含8个数据点
    - 如果用户指定范围不足8个数据点，自动向前扩展时间范围
    - 例如：月度数据至少需要8个月，日度数据至少需要8天
+
+4. 定基比分析为主要分析时：
+   - 用户指定基期"2020年"，目标"2025年" → 查询范围为"2020年至2025年"（连续）
+   - 未指定基期时 → 使用数据中最早的周期作为默认基期
+
+辅助分析适应策略：
+- 辅助分析使用主要分析确定的时间范围
+- 如果辅助分析数据不足，在结果中添加警告信息
+- 例如：主要分析为环比（7月-8月），辅助周期性分析数据点较少时给出警告
 
 【时间表达解析规则】
 相对时间表达映射（基于当前日期 {current_year}年{current_month}月{current_day}日）：
@@ -147,21 +163,29 @@ class MultiAnalysisExtractor(BaseAlgorithmExtractor):
 time_range_info 是新增的必填字段，用于记录时间范围扩展信息，结构如下：
 
 {{
-  "analysis_type": "period_over_period",  // 分析类型
+  "analysis_type": "period_over_period",  // 主要分析类型
   "period_type": "month",                  // 周期类型: hour/day/week/month/quarter/year
+  "primary_analysis": "period_over_period", // 主要分析类型（新增）
+  "secondary_analyses": ["periodicity"],    // 辅助分析类型列表（新增）
   "target_period": {{"year": 2025, "month": 8}},  // 目标周期
   "comparison_period": {{"year": 2025, "month": 7}},  // 对比周期（环比为上一周期，同比为去年同期）
   "expanded_range": {{
-    "start": "2025-07-01",  // 扩展后时间范围起始
+    "start": "2025-07-01",  // 扩展后时间范围起始（以主要分析需求为准）
     "end": "2025-08-31"     // 扩展后时间范围结束
-  }}
+  }},
+  "data_sufficiency_warning": "周期性分析数据点较少，结果可能不够准确"  // 辅助分析数据不足警告（可选）
 }}
 
 不同分析类型的 time_range_info 字段：
-- 环比分析: 包含 current_period（当前周期）和 previous_period（上一周期）
-- 同比分析: 包含 current_period（当前周期）和 same_period_last_year（去年同期）
-- 定基比分析: 包含 base_period（基期）和 target_periods（目标周期列表）
-- 周期性分析: 包含 expanded_range（扩展后的时间范围）
+- 环比分析为主: 包含 current_period（当前周期）和 previous_period（上一周期）
+- 同比分析为主: 包含 current_period（当前周期）和 same_period_last_year（去年同期）
+- 定基比分析为主: 包含 base_period（基期）和 target_periods（目标周期列表）
+- 周期性分析为主: 包含 expanded_range（扩展后的时间范围）
+
+主次分析识别示例：
+- "对8月出车次数进行周期性和环比分析" → primary_analysis: "period_over_period"（环比为主）
+- "分析8月出车次数的周期性" → primary_analysis: "periodicity"（周期性为主）
+- "全面分析出车次数" → primary_analysis: "periodicity"（数据需求最大的为主）
 
 输出JSON格式（严格遵守）：
 {{
@@ -177,6 +201,8 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
     "time_range_info": {{
       "analysis_type": "period_over_period",
       "period_type": "month",
+      "primary_analysis": "period_over_period",
+      "secondary_analyses": [],
       "current_period": {{"year": 2025, "month": 8}},
       "previous_period": {{"year": 2025, "month": 7}},
       "expanded_range": {{
@@ -191,7 +217,37 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
 
 【更多输出示例】
 
-示例1 - 同比分析（2025年8月与去年同期对比）：
+示例3 - 周期性和环比分析（环比为主）：
+{{
+  "parameter_mapping": {{
+    "timestamp_column": "日期",
+    "value_column": "出车次数",
+    "analysis_types": ["period_over_period", "periodicity"],
+    "include_all": false,
+    "period_type": "month",
+    "base_period": null,
+    "base_value": 100,
+    "simplified": false,
+    "time_range_info": {{
+      "analysis_type": "period_over_period",
+      "period_type": "month",
+      "primary_analysis": "period_over_period",
+      "secondary_analyses": ["periodicity"],
+      "current_period": {{"year": 2025, "month": 8}},
+      "previous_period": {{"year": 2025, "month": 7}},
+      "expanded_range": {{
+        "start": "2025-07-01",
+        "end": "2025-08-31"
+      }},
+      "data_sufficiency_warning": "周期性分析数据点较少，结果可能不够准确"
+    }}
+  }},
+  "required_columns": ["日期", "出车次数"],
+  "normalized_query": "获取2025年7月至8月的出车数据的日期、出车次数，返回日期、出车次数共2列数据"
+}}
+
+示例4 - 同比分析（2025年8月与去年同期对比）：
+示例4 - 同比分析（2025年8月与去年同期对比）：
 {{
   "parameter_mapping": {{
     "timestamp_column": "日期",
@@ -205,6 +261,8 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
     "time_range_info": {{
       "analysis_type": "year_over_year",
       "period_type": "month",
+      "primary_analysis": "year_over_year",
+      "secondary_analyses": [],
       "current_period": {{"year": 2025, "month": 8}},
       "same_period_last_year": {{"year": 2024, "month": 8}},
       "expanded_range": {{
@@ -217,7 +275,8 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
   "normalized_query": "获取2024年8月和2025年8月的出车数据的日期、出车次数，返回日期、出车次数共2列数据"
 }}
 
-示例2 - 定基比分析（以2020年为基期）：
+示例5 - 定基比分析（以2020年为基期）：
+示例5 - 定基比分析（以2020年为基期）：
 {{
   "parameter_mapping": {{
     "timestamp_column": "日期",
@@ -231,6 +290,8 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
     "time_range_info": {{
       "analysis_type": "base_period_index",
       "period_type": "year",
+      "primary_analysis": "base_period_index",
+      "secondary_analyses": [],
       "base_period": {{"year": 2020}},
       "target_periods": [{{"year": 2021}}, {{"year": 2022}}, {{"year": 2023}}, {{"year": 2024}}, {{"year": 2025}}],
       "expanded_range": {{
@@ -243,7 +304,7 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
   "normalized_query": "获取2020年至2025年的销售数据的日期、销售额，返回日期、销售额共2列数据"
 }}
 
-示例3 - 周期性分析（确保足够数据点）：
+示例6 - 周期性分析（确保足够数据点）：
 {{
   "parameter_mapping": {{
     "timestamp_column": "日期",
@@ -257,6 +318,8 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
     "time_range_info": {{
       "analysis_type": "periodicity",
       "period_type": "month",
+      "primary_analysis": "periodicity",
+      "secondary_analyses": [],
       "min_data_points": 8,
       "expanded_range": {{
         "start": "2025-01-01",
@@ -427,6 +490,27 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
         valid_analysis_types = ['periodicity', 'period_over_period', 'year_over_year', 'base_period_index']
         if analysis_type and analysis_type in valid_analysis_types:
             parsed['analysis_type'] = analysis_type
+        
+        # 解析primary_analysis（新增）
+        primary_analysis = time_range_info.get('primary_analysis')
+        if primary_analysis and primary_analysis in valid_analysis_types:
+            parsed['primary_analysis'] = primary_analysis
+        elif analysis_type:
+            # 如果没有primary_analysis，使用analysis_type作为默认值
+            parsed['primary_analysis'] = analysis_type
+        
+        # 解析secondary_analyses（新增）
+        secondary_analyses = time_range_info.get('secondary_analyses')
+        if secondary_analyses and isinstance(secondary_analyses, list):
+            valid_secondary = [t for t in secondary_analyses if t in valid_analysis_types]
+            parsed['secondary_analyses'] = valid_secondary
+        else:
+            parsed['secondary_analyses'] = []
+        
+        # 解析data_sufficiency_warning（新增）
+        warning = time_range_info.get('data_sufficiency_warning')
+        if warning:
+            parsed['data_sufficiency_warning'] = str(warning)
         
         # 解析period_type
         period_type = time_range_info.get('period_type')
