@@ -1362,6 +1362,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                     retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
                     context={'operation': 'association_execution', 'algorithm_type': algorithm_type.value}
                 )
+            
             elif algorithm_type == AlgorithmType.SIMILARITY:
                 return await self.retry_handler.retry_async(
                     self.algorithm_executor.execute_similarity,
