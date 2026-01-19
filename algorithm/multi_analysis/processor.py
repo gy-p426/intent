@@ -44,29 +44,45 @@ class MultiAnalysisProcessor(BaseAlgorithmProcessor):
             timestamp_column = param_mapping.get('timestamp_column')
             value_column = param_mapping.get('value_column')
             
-            # 添加调试日志
-            logger.info(f"期望的时间字段名: {timestamp_column}")
-            logger.info(f"期望的数值字段名: {value_column}")
+            # 🚨 紧急修复：详细的字段匹配诊断
+            actual_fields = list(sql_result[0].keys()) if sql_result else []
+            logger.info(f"🔍 SQL返回的实际字段名: {actual_fields}")
+            logger.info(f"🎯 extractor期望的时间字段: {timestamp_column}")
+            logger.info(f"🎯 extractor期望的数值字段: {value_column}")
             
-            if sql_result:
-                actual_fields = list(sql_result[0].keys())
-                logger.info(f"SQL返回的实际字段名: {actual_fields}")
-                
-                # 检查字段名是否匹配
-                if timestamp_column not in actual_fields:
-                    logger.warning(f"时间字段 '{timestamp_column}' 不在SQL结果中，实际字段: {actual_fields}")
-                if value_column not in actual_fields:
-                    logger.warning(f"数值字段 '{value_column}' 不在SQL结果中，实际字段: {actual_fields}")
+            # 🔧 智能字段匹配：如果期望字段不存在，尝试找到最佳匹配
+            final_timestamp_column, final_value_column = await self._smart_field_matching(
+                actual_fields, timestamp_column, value_column
+            )
+            
+            if final_timestamp_column != timestamp_column:
+                logger.warning(f"🔄 时间字段自动匹配: '{timestamp_column}' → '{final_timestamp_column}'")
+            
+            if final_value_column != value_column:
+                logger.warning(f"🔄 数值字段自动匹配: '{value_column}' → '{final_value_column}'")
             
             # 转换数据格式为时间序列格式
             converted_data = await self._convert_to_time_series_format(
-                sql_result, timestamp_column, value_column
+                sql_result, final_timestamp_column, final_value_column
             )
+            
+            # 🚨 紧急修复：如果转换后数据为空，提供详细的错误信息
+            if not converted_data:
+                error_msg = (
+                    f"数据转换失败，所有数据行都被跳过。\n"
+                    f"SQL返回字段: {actual_fields}\n"
+                    f"期望时间字段: {timestamp_column} (实际使用: {final_timestamp_column})\n"
+                    f"期望数值字段: {value_column} (实际使用: {final_value_column})\n"
+                    f"原始数据行数: {len(sql_result)}\n"
+                    f"可能原因: 字段名不匹配或数据格式错误"
+                )
+                logger.error(error_msg)
+                raise ValueError(error_msg)
             
             # 构建算法配置
             config = {
-                "timestamp_column": timestamp_column,
-                "value_column": value_column,
+                "timestamp_column": final_timestamp_column,
+                "value_column": final_value_column,
                 "analysis_types": param_mapping.get('analysis_types'),
                 "include_all": param_mapping.get('include_all', True),
                 "candidate_periods": param_mapping.get('candidate_periods'),
@@ -80,7 +96,7 @@ class MultiAnalysisProcessor(BaseAlgorithmProcessor):
                 }
             }
             
-            logger.info(f"统一多算法分析数据转换完成，配置: {config}")
+            logger.info(f"✅ 统一多算法分析数据转换完成，有效数据点: {len(converted_data)}")
             
             return AlgorithmExecutionRequest(
                 data_rows=converted_data,
@@ -90,6 +106,108 @@ class MultiAnalysisProcessor(BaseAlgorithmProcessor):
         except Exception as e:
             logger.error(f"统一多算法分析数据转换失败: {str(e)}")
             raise ValueError(f"统一多算法分析数据转换失败: {str(e)}")
+    
+    async def _smart_field_matching(
+        self, 
+        actual_fields: List[str], 
+        expected_timestamp: str, 
+        expected_value: str
+    ) -> tuple:
+        """
+        🧠 智能字段匹配：当期望字段不存在时，自动找到最佳匹配
+        
+        Args:
+            actual_fields: SQL返回的实际字段名列表
+            expected_timestamp: extractor期望的时间字段名
+            expected_value: extractor期望的数值字段名
+            
+        Returns:
+            tuple: (最终时间字段名, 最终数值字段名)
+        """
+        final_timestamp = expected_timestamp
+        final_value = expected_value
+        
+        # 检查时间字段是否需要匹配
+        if expected_timestamp not in actual_fields:
+            logger.warning(f"⚠️ 时间字段 '{expected_timestamp}' 不存在，开始智能匹配...")
+            
+            # 时间字段匹配规则
+            time_patterns = [
+                "时间", "日期", "date", "time", "timestamp", 
+                "出车时间", "创建时间", "订单时间", "统计时间"
+            ]
+            
+            best_match = None
+            best_score = 0
+            
+            for field in actual_fields:
+                score = 0
+                field_lower = field.lower()
+                
+                # 完全匹配得最高分
+                if field == expected_timestamp:
+                    score = 100
+                # 包含关键词匹配
+                else:
+                    for pattern in time_patterns:
+                        if pattern in field_lower or pattern in field:
+                            score = max(score, 80)
+                        if field_lower in pattern or field in pattern:
+                            score = max(score, 70)
+                
+                if score > best_score:
+                    best_score = score
+                    best_match = field
+            
+            if best_match and best_score >= 70:
+                final_timestamp = best_match
+                logger.info(f"✅ 时间字段智能匹配成功: '{expected_timestamp}' → '{final_timestamp}' (得分: {best_score})")
+            else:
+                logger.error(f"❌ 无法找到合适的时间字段匹配，可用字段: {actual_fields}")
+        
+        # 检查数值字段是否需要匹配
+        if expected_value not in actual_fields:
+            logger.warning(f"⚠️ 数值字段 '{expected_value}' 不存在，开始智能匹配...")
+            
+            # 数值字段匹配规则
+            value_patterns = [
+                "次数", "数量", "金额", "总和", "总数", "完成", 
+                "出车次数", "销售额", "count", "amount", "sum", "total"
+            ]
+            
+            best_match = None
+            best_score = 0
+            
+            for field in actual_fields:
+                score = 0
+                field_lower = field.lower()
+                
+                # 完全匹配得最高分
+                if field == expected_value:
+                    score = 100
+                # 包含关键词匹配
+                else:
+                    for pattern in value_patterns:
+                        if pattern in field_lower or pattern in field:
+                            score = max(score, 80)
+                        if field_lower in pattern or field in pattern:
+                            score = max(score, 70)
+                
+                # 特殊处理：如果期望字段是"出车次数"，实际字段是"出车次数总和"，给高分
+                if "出车次数" in expected_value and "出车次数" in field and "总和" in field:
+                    score = 95
+                
+                if score > best_score:
+                    best_score = score
+                    best_match = field
+            
+            if best_match and best_score >= 70:
+                final_value = best_match
+                logger.info(f"✅ 数值字段智能匹配成功: '{expected_value}' → '{final_value}' (得分: {best_score})")
+            else:
+                logger.error(f"❌ 无法找到合适的数值字段匹配，可用字段: {actual_fields}")
+        
+        return final_timestamp, final_value
     
     async def _convert_to_time_series_format(
         self,

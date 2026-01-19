@@ -191,8 +191,8 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
 输出JSON格式（严格遵守）：
 {{
   "parameter_mapping": {{
-    "timestamp_column": "日期",
-    "value_column": "销售额",
+    "timestamp_column": "出车时间",
+    "value_column": "出车次数总和",
     "analysis_types": ["period_over_period"],
     "include_all": false,
     "period_type": "month",
@@ -212,8 +212,8 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
       }}
     }}
   }},
-  "required_columns": ["日期", "销售额"],
-  "normalized_query": "按月汇总2025年7月至8月的销售数据，获取月份、销售额总和，共2列数据"
+  "required_columns": ["出车时间", "出车次数总和"],
+  "normalized_query": "按月汇总2025年7月至8月的出车数据，获取月份、出车次数总和，共2列数据"
 }}
 
 【更多输出示例】
@@ -221,8 +221,8 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
 示例3 - 周期性和环比分析（环比为主）：
 {{
   "parameter_mapping": {{
-    "timestamp_column": "日期",
-    "value_column": "出车次数",
+    "timestamp_column": "出车时间",
+    "value_column": "出车次数总和",
     "analysis_types": ["period_over_period", "periodicity"],
     "include_all": false,
     "period_type": "month",
@@ -243,7 +243,7 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
       "data_sufficiency_warning": "周期性分析数据点较少，结果可能不够准确"
     }}
   }},
-  "required_columns": ["日期", "出车次数"],
+  "required_columns": ["出车时间", "出车次数总和"],
   "normalized_query": "按月汇总2025年7月至8月的出车数据，获取月份、出车次数总和，共2列数据"
 }}
 
@@ -251,8 +251,8 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
 示例4 - 同比分析（2025年8月与去年同期对比）：
 {{
   "parameter_mapping": {{
-    "timestamp_column": "日期",
-    "value_column": "出车次数",
+    "timestamp_column": "出车时间",
+    "value_column": "出车次数总和",
     "analysis_types": ["year_over_year"],
     "include_all": false,
     "period_type": "month",
@@ -272,7 +272,7 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
       }}
     }}
   }},
-  "required_columns": ["日期", "出车次数"],
+  "required_columns": ["出车时间", "出车次数总和"],
   "normalized_query": "按月汇总2024年8月和2025年8月的出车数据，获取月份、出车次数总和，共2列数据"
 }}
 
@@ -308,8 +308,8 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
 示例6 - 周期性分析（确保足够数据点）：
 {{
   "parameter_mapping": {{
-    "timestamp_column": "日期",
-    "value_column": "出车次数",
+    "timestamp_column": "出车时间",
+    "value_column": "出车次数总和",
     "analysis_types": ["periodicity"],
     "include_all": false,
     "period_type": "month",
@@ -328,7 +328,7 @@ time_range_info 是新增的必填字段，用于记录时间范围扩展信息�
       }}
     }}
   }},
-  "required_columns": ["日期", "出车次数"],
+  "required_columns": ["出车时间", "出车次数总和"],
   "normalized_query": "按月汇总2025年1月至8月的出车数据，获取月份、出车次数总和，共2列数据"
 }}"""
         
