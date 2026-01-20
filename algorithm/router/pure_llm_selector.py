@@ -146,26 +146,14 @@ class PureLLMAlgorithmSelector:
     - 关键词：占比、贡献、排行
     - 示例：对A、B两名员工分析销售的占比贡献情况
 
-14. multi_analysis (统一多算法分析) ⭐ forecast_service
-    - 用途：时间序列的周期对比分析，包括周期性检测、环比分析、同比分析、定基比分析
-    - 关键词：周期性、环比、同比、定基比、与上月对比、与上期对比、与去年对比、与去年同期、以...为基准、本月vs上月、今年vs去年、周期规律、综合分析、全面分析
-    - 示例：
-      * 分析销售数据的周期性规律
-      * 对比本月和上月的销售额变化（环比）
-      * 分析今年与去年同期的业绩对比（同比）
-      * 以2020年为基期计算各年度指数（定基比）
-      * 综合分析出车数据的周期性和环比变化
-    - 注意：只要涉及"环比"、"同比"、"与上月/上期"、"与去年/同期"等时间周期对比，都应选择此算法
-
-
 识别原则：
 1. 仔细分析用户问题的核心目标和意图
 2. 重点关注问题中的关键动词和目标名词
 3. 当问题包含多个可能的算法特征时，选择与主要目标最匹配的算法
 
-⭐ 特别注意区分 forecast_service 的三个算法：
+⭐ 特别注意区分 forecast_service 的两个算法：
 
-【predict vs trend vs multi_analysis 区分规则】
+【predict vs trend 区分规则】
 
 A. predict（预测）：
    - 核心特征：预测"未来"的数值
@@ -180,26 +168,14 @@ B. trend（趋势分析）：
    - 示例："分析整体趋势是上升还是下降" → trend
    - 示例："使用STL分解时间序列" → trend
 
-C. multi_analysis（周期对比分析）：
-   - 核心特征：时间周期之间的对比（环比、同比、定基比、周期性）
-   - 触发词：环比、同比、与上月、与上期、与去年、与同期、定基比、周期性、周期规律
-   - 示例："分析上月的销售变化" → multi_analysis（环比）
-   - 示例："对比今年和去年的业绩" → multi_analysis（同比）
-   - 示例："分析数据的周期性规律" → multi_analysis（周期性）
-   - 示例："以2020年为基准计算指数" → multi_analysis（定基比）
-
 【易混淆场景判断】
-- "分析上月的销售趋势" → multi_analysis（"上月"表示环比对比）
 - "分析销售的整体趋势" → trend（"整体趋势"表示趋势分解）
 - "预测下月销售趋势" → predict（"预测下月"表示未来预测）
-- "分析去年同期的变化" → multi_analysis（"去年同期"表示同比）
-- "分析数据有没有周期性" → multi_analysis（周期性检测）
 
 【其他区分规则】
 - "分析异常点" = anomaly（目标是找异常点）
 - "分析异常数据的趋势" = trend（目标是分析趋势，异常数据只是数据来源）
 - "对比A和B部门" = compare（非时间维度对比）
-- "对比本月和上月" = multi_analysis（时间维度对比）
 
 请直接输出算法类型名称，不需要解释。"""
 
@@ -227,7 +203,7 @@ C. multi_analysis（周期对比分析）：
             valid_algorithms = {
                 'cluster', 'classify', 'predict', 'anomaly', 'associate', 
                 'compare', 'similarity', 'trend', 'profile', 'causality', 
-                'alert', 'recommend', 'compare_proportion', 'multi_analysis',
+                'alert', 'recommend', 'compare_proportion',
             }
             
             # 直接匹配

@@ -138,11 +138,6 @@ def register_all_algorithms(nl2sql_client=None):
         from algorithm.multi_analysis.processor import MultiAnalysisProcessor
         algorithm_registry.register_algorithm(MultiAnalysisExtractor(nl2sql_client), MultiAnalysisProcessor())
         
-        # 因果分析算法
-        from algorithm.causality.extractor import CausalityExtractor
-        from algorithm.causality.processor import CausalityProcessor
-        algorithm_registry.register_algorithm(CausalityExtractor(nl2sql_client), CausalityProcessor())
-        
         logger.info("所有算法注册完成")
         
     except ImportError as e:
