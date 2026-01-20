@@ -813,6 +813,8 @@ class DataProcessor(IDataProcessor):
                   or "贡献" in algorithm_config.name  or "排行" in algorithm_config.name
                   or "proportion" in algorithm_name_lower):
                 return AlgorithmType.COMPARE_PROPORTION
+            elif "因果" in algorithm_config.name or "causal" in algorithm_name_lower:
+                return AlgorithmType.CAUSALITY
             else:
                 return None
         except Exception as e:

@@ -63,6 +63,19 @@ class AlgorithmAPIClient:
             'multi_analysis': self.settings.trend_service_name,  # 统一多算法分析，复用 forecast_service（与 trend 同服务）
         }
         
+        # 服务名称到方法的映射
+        self.service_name_to_method_map = {
+            'kmeans-service': self.call_clustering_api,
+            'clustering-service': self.call_clustering_api,
+            'classification-service': self.call_classification_api,
+            'prediction-service': self.call_prediction_api,
+            'dbscan-service': self.call_anomaly_detection_api,
+            'association-service': self.call_association_api,
+            'trend-service': self.call_trend_analysis_api,
+            'causality-service': self.call_causality_api,
+            'compare_proportion-service': self.call_compare_proportion_api,
+        }
+        
         # 静态URL映射（降级使用）
         self.static_url_mapping = {
             'clustering': self.settings.clustering_api_url,
@@ -476,6 +489,73 @@ class AlgorithmAPIClient:
             "config": config
         }
         return await self.call_algorithm_api("compare_proportion", "/api/compare_analysis_proportion", "POST", payload)
+    
+    async def call_causality_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        调用因果分析服务API
+        
+        Args:
+            data_rows: 数据行列表
+            config: 算法配置
+            
+        Returns:
+            Dict[str, Any]: API响应结果
+        """
+        try:
+            # 构建请求数据
+            request_data = {
+                "data": [],
+                "options": {
+                    "analysis_type": "causal"
+                }
+            }
+            
+            # 从config中提取列名
+            columns = config.get('columns', [])
+            
+            if not columns:
+                logger.error("因果分析配置中缺少columns字段")
+                return {
+                    "error": "配置错误：缺少columns字段",
+                    "status": "error"
+                }
+            
+            # 转换数据格式：从行格式转换为列格式
+            for col_name in columns:
+                values = [row.get(col_name) for row in data_rows if row.get(col_name) is not None]
+                
+                if not values:
+                    logger.warning(f"列 {col_name} 没有有效数据")
+                    continue
+                
+                request_data["data"].append({
+                    "name": col_name,
+                    "values": values
+                })
+            
+            # 验证数据
+            if len(request_data["data"]) < 2:
+                logger.error(f"因果分析至少需要2列数据，当前只有{len(request_data['data'])}列")
+                return {
+                    "error": "数据不足：因果分析至少需要2列数据",
+                    "status": "error"
+                }
+            
+            logger.info(f"调用因果分析API，数据列数: {len(request_data['data'])}")
+            logger.debug(f"因果分析请求数据: {request_data}")
+            
+            # 调用因果分析服务
+            result = await self.call_algorithm_api("causality", "/analyze", "POST", request_data)
+            
+            logger.info("因果分析API调用成功")
+            return result
+            
+        except Exception as e:
+            logger.error(f"调用因果分析API异常: {str(e)}")
+            return {
+                "error": f"API调用失败: {str(e)}",
+                "status": "error"
+            }
     
     # async def call_dbscan_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
     #     """
