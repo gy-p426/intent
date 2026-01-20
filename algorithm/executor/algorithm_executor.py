@@ -863,6 +863,86 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                 readable_result=None
             )
     
+    # =========================================================================
+    # Causality Analysis 执行方法
+    # =========================================================================
+    
+    async def execute_causality_analysis(
+        self,
+        request: AlgorithmExecutionRequest
+    ) -> AlgorithmExecutionResponse:
+        """
+        执行因果分析算法
+        
+        Args:
+            request: 算法执行请求
+            
+        Returns:
+            AlgorithmExecutionResponse: 执行响应
+        """
+        logger.info("开始执行因果分析算法")
+        logger.info(f"输入数据行数: {len(request.data_rows)}")
+        logger.info(f"因果分析配置: {request.config}")
+        
+        try:
+            # 调用因果分析API
+            result_data = await self.algorithm_client.call_causality_api(
+                data_rows=request.data_rows,
+                config=request.config
+            )
+            
+            logger.info("因果分析算法执行成功")
+            
+            # 检查响应是否包含错误信息
+            if 'error' in result_data:
+                error_msg = result_data.get('error', '未知错误')
+                logger.error(f"因果分析返回错误: {error_msg}")
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="error",
+                    message=f"因果分析执行失败: {error_msg}",
+                    readable_result=None
+                )
+            
+            # 检查响应中是否包含有效结果字段
+            has_valid_result = (
+                result_data.get('status') == 'success' or
+                result_data.get('success', False) or
+                ('解释' in result_data and 'error' not in result_data)
+            )
+            
+            if has_valid_result and result_data:
+                # 统一添加status字段
+                if 'status' not in result_data:
+                    result_data['status'] = 'success'
+                
+                logger.info(f"因果分析执行成功，响应包含字段: {list(result_data.keys())}")
+                
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="success",
+                    message="因果分析执行成功",
+                    readable_result=None  # 设置为None，系统会自动调用大模型分析
+                )
+            else:
+                error_msg = result_data.get('message', '响应格式不符合预期')
+                logger.error(f"因果分析返回未知格式: {result_data}")
+                return AlgorithmExecutionResponse(
+                    result=result_data,
+                    status="error",
+                    message=f"因果分析执行失败: {error_msg}",
+                    readable_result=None
+                )
+        
+        except Exception as e:
+            logger.error(f"因果分析执行失败: {str(e)}")
+            return AlgorithmExecutionResponse(
+                result={},
+                status="error",
+                message=f"因果分析执行失败: {str(e)}",
+                readable_result=None
+            )
+    
     async def forecast_service_health_check(self) -> bool:
         """
         检查 Forecast Service 健康状态
