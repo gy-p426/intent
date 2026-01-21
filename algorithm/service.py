@@ -433,6 +433,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 data={
                     "data_rows_count": len(nl2sql_response.execution_result),
                     "sql_statement": nl2sql_response.sql_statement,
+                    "sample_data": nl2sql_response.execution_result if nl2sql_response.execution_result else [],
                     "message": f"数据检索完成，获取到 {len(nl2sql_response.execution_result)} 行数据"
                 },
                 timestamp=datetime.utcnow()
@@ -893,17 +894,16 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                 # 构建增强的最终完成响应
                                 algorithm_type_chinese = ALGORITHM_TYPE_CHINESE_MAP.get(algorithm_type, algorithm_type.value)
                                 
-                                # 检查算法执行结果是否有效
-                                algorithm_status = algorithm_result.get('status', 'unknown')
-                                is_algorithm_success = (
-                                    algorithm_status == 'success' and 
+                                # 检查算法执行结果是否有有效内容（宽松判断）
+                                # 只要结果不为空且包含多个字段，就认为有有效数据
+                                has_valid_content = (
                                     algorithm_result and 
-                                    len(algorithm_result) > 1  # 至少包含 status 和其他字段
+                                    len(algorithm_result) > 1  # 至少包含多个字段
                                 )
                                 
-                                # 只有在算法执行成功时才进行大模型分析
-                                if is_algorithm_success:
-                                    logger.info(f"算法执行成功，开始大模型分析")
+                                # 只要有有效内容，就进行大模型分析
+                                if has_valid_content:
+                                    logger.info(f"算法返回有效结果，开始大模型分析")
                                     readable_result = await self._format_readable_result_with_llm(
                                         algorithm_type, 
                                         algorithm_result, 
@@ -911,7 +911,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                         parameters.normalized_query  # 传入用户原始问题
                                     )
                                 else:
-                                    logger.warning(f"算法执行失败或结果为空 (status={algorithm_status})，跳过大模型分析")
+                                    logger.warning(f"算法执行失败或结果为空，跳过大模型分析")
                                     # 生成简单的错误说明
                                     error_message = algorithm_result.get('error', '算法执行失败，未返回有效结果')
                                     readable_result = {
@@ -932,7 +932,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                         "sql_execution_time": nl2sql_response.execution_time_ms
                                     },
                                     "readable_result": readable_result,
-                                    "message": f"{algorithm_type_chinese}算法分析结果如下" if is_algorithm_success else f"{algorithm_type_chinese}算法执行失败"
+                                    "message": f"{algorithm_type_chinese}算法分析结果如下" if has_valid_content else f"{algorithm_type_chinese}算法执行失败"
                                 }
                                 
                                 logger.info(f"完整算法流程执行完成: {algorithm_type.value}")
@@ -940,7 +940,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                                 
                                 yield AlgorithmResponse(
                                     step=StreamingStep.COMPLETED,
-                                    status="completed" if is_algorithm_success else "failed",
+                                    status="completed" if has_valid_content else "failed",
                                     data=final_data,
                                     timestamp=datetime.utcnow()
                                 )

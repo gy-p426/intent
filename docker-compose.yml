@@ -36,7 +36,7 @@ services:
       
       # NL2SQL服务配置
       - NL2SQL_BASE_URL=${NL2SQL_BASE_URL:-http://nl2sql-service:8080}
-      - NL2SQL_TIMEOUT=30
+      - NL2SQL_TIMEOUT=60
       - NL2SQL_MAX_RETRIES=3
       - NL2SQL_RETRY_DELAY=2
       

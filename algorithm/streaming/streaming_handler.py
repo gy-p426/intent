@@ -3,12 +3,17 @@ Streaming Response Handler Implementation
 
 Manages streaming HTTP responses to provide real-time feedback
 during long-running algorithm execution processes.
+
+添加客户端连接断开检测功能。
+当客户端关闭连接时，后端立即停止处理，释放资源。
 """
 
 import json
 import logging
 from typing import Any, Optional
 from datetime import datetime
+from fastapi import Request
+
 from algorithm.models import AlgorithmResponse, AlgorithmResponseGenerator
 from algorithm.interfaces import IStreamingResponseHandler
 from infrastructure.config import get_settings
@@ -27,13 +32,18 @@ class StreamingResponseHandler(IStreamingResponseHandler):
         
     async def create_streaming_response(
         self, 
-        generator: AlgorithmResponseGenerator
+        generator: AlgorithmResponseGenerator,
+        http_request: Optional[Request] = None  # 新增：用于检测客户端连接
     ) -> Any:
         """
         创建流式HTTP响应（增强版本，支持进度跟踪）
+
+        - 在yield循环中检查客户端连接状态
+        - 捕获异常，停止处理
         
         Args:
             generator: 算法响应生成器
+            http_request: FastAPI Request对象，用于检测连接状态
             
         Returns:
             StreamingResponse: FastAPI流式响应对象
@@ -50,6 +60,11 @@ class StreamingResponseHandler(IStreamingResponseHandler):
                 task_id = None
                 try:
                     async for response in generator:
+                        # 检测客户端是否断开连接（类似Java的IOException检测）
+                        if http_request and await http_request.is_disconnected():
+                            logger.info("🛑 客户端已断开连接，停止流式响应")
+                            break
+                        
                         # 提取任务ID用于进度跟踪
                         if hasattr(response, 'task_id') and response.task_id:
                             task_id = response.task_id
@@ -67,16 +82,23 @@ class StreamingResponseHandler(IStreamingResponseHandler):
                         chunk = self.format_stream_chunk(response)
                         yield chunk
                         
+                except (BrokenPipeError, ConnectionResetError) as e:
+                    # 捕获连接断开异常（对应Java的IOException）
+                    logger.info(f"🛑 客户端已断开连接，停止处理 - {e.__class__.__name__}: {str(e)}")
+                    return
                 except Exception as e:
-                    logger.error(f"流式响应生成失败: {str(e)}")
+                    logger.error(f"❌ 流式响应生成失败: {str(e)}")
                     # 发送错误响应
-                    from algorithm.models import ErrorResponse
-                    error_response = ErrorResponse(
-                        error_code="STREAMING_ERROR",
-                        error_message=str(e)
-                    )
-                    error_chunk = self.format_stream_chunk(error_response)
-                    yield error_chunk
+                    try:
+                        from algorithm.models import ErrorResponse
+                        error_response = ErrorResponse(
+                            error_code="STREAMING_ERROR",
+                            error_message=str(e)
+                        )
+                        error_chunk = self.format_stream_chunk(error_response)
+                        yield error_chunk
+                    except Exception as ex:
+                        logger.warning(f"⚠️ 发送错误事件失败，连接已断开: {str(ex)}")
                 finally:
                     # 停止进度跟踪
                     if task_id:
@@ -177,13 +199,18 @@ class StreamingResponseHandler(IStreamingResponseHandler):
     
     async def create_sse_response(
         self, 
-        generator: AlgorithmResponseGenerator
+        generator: AlgorithmResponseGenerator,
+        http_request: Optional[Request] = None  # 新增：用于检测客户端连接
     ) -> Any:
         """
         创建Server-Sent Events (SSE)响应
+
+        - 在yield循环中检查客户端连接状态
+        - 捕获异常，停止处理
         
         Args:
             generator: 算法响应生成器
+            http_request: FastAPI Request对象，用于检测连接状态
             
         Returns:
             StreamingResponse: SSE格式的流式响应
@@ -194,6 +221,11 @@ class StreamingResponseHandler(IStreamingResponseHandler):
             async def sse_generator():
                 try:
                     async for response in generator:
+                        # 检测客户端是否断开连接
+                        if http_request and await http_request.is_disconnected():
+                            logger.info("🛑 客户端已断开连接，停止SSE响应")
+                            break
+                        
                         # 根据响应步骤确定事件类型
                         event_type = "message"
                         if hasattr(response, 'step'):
@@ -203,16 +235,23 @@ class StreamingResponseHandler(IStreamingResponseHandler):
                         chunk = self.format_sse_chunk(response, event_type)
                         yield chunk
                         
+                except (BrokenPipeError, ConnectionResetError) as e:
+                    # 捕获连接断开异常
+                    logger.info(f"🛑 客户端已断开连接，停止处理 - {e.__class__.__name__}: {str(e)}")
+                    return
                 except Exception as e:
-                    logger.error(f"SSE响应生成失败: {str(e)}")
+                    logger.error(f"❌ SSE响应生成失败: {str(e)}")
                     # 发送错误事件
-                    from algorithm.models import ErrorResponse
-                    error_response = ErrorResponse(
-                        error_code="SSE_ERROR",
-                        error_message=str(e)
-                    )
-                    error_chunk = self.format_sse_chunk(error_response, "error")
-                    yield error_chunk
+                    try:
+                        from algorithm.models import ErrorResponse
+                        error_response = ErrorResponse(
+                            error_code="SSE_ERROR",
+                            error_message=str(e)
+                        )
+                        error_chunk = self.format_sse_chunk(error_response, "error")
+                        yield error_chunk
+                    except Exception as ex:
+                        logger.warning(f"⚠️ 发送错误事件失败，连接已断开: {str(ex)}")
             
             # 创建SSE StreamingResponse
             return StreamingResponse(
@@ -279,7 +318,8 @@ class StreamingResponseHandler(IStreamingResponseHandler):
         self,
         generator: AlgorithmResponseGenerator,
         task_id: str,
-        trace_id: Optional[str] = None
+        trace_id: Optional[str] = None,
+        http_request: Optional[Request] = None  # 新增：用于检测客户端连接
     ) -> Any:
         """
         创建支持进度跟踪的流式响应
@@ -288,6 +328,7 @@ class StreamingResponseHandler(IStreamingResponseHandler):
             generator: 算法响应生成器
             task_id: 任务ID
             trace_id: 追踪ID
+            http_request: FastAPI Request对象，用于检测连接状态
             
         Returns:
             StreamingResponse: 支持进度跟踪的流式响应
@@ -306,6 +347,11 @@ class StreamingResponseHandler(IStreamingResponseHandler):
                     async for response in async_task_logger.stream_task_progress(
                         generator, task_id, trace_id or "unknown"
                     ):
+                        # 检测客户端是否断开连接
+                        if http_request and await http_request.is_disconnected():
+                            logger.info("🛑 客户端已断开连接，停止进度感知流式响应")
+                            break
+                        
                         # 更新进度跟踪器
                         if hasattr(response, 'progress') and response.progress:
                             await progress_tracker.update_progress(
@@ -339,15 +385,22 @@ class StreamingResponseHandler(IStreamingResponseHandler):
                                 yield summary_chunk
                             break
                 
+                except (BrokenPipeError, ConnectionResetError) as e:
+                    # 捕获连接断开异常
+                    logger.info(f"🛑 客户端已断开连接，停止处理 - {e.__class__.__name__}: {str(e)}")
+                    return
                 except Exception as e:
-                    logger.error(f"进度感知流式响应生成失败: {str(e)}")
-                    from algorithm.models import ErrorResponse
-                    error_response = ErrorResponse(
-                        error_code="PROGRESS_STREAMING_ERROR",
-                        error_message=str(e)
-                    )
-                    error_chunk = self.format_stream_chunk(error_response)
-                    yield error_chunk
+                    logger.error(f"❌ 进度感知流式响应生成失败: {str(e)}")
+                    try:
+                        from algorithm.models import ErrorResponse
+                        error_response = ErrorResponse(
+                            error_code="PROGRESS_STREAMING_ERROR",
+                            error_message=str(e)
+                        )
+                        error_chunk = self.format_stream_chunk(error_response)
+                        yield error_chunk
+                    except Exception as ex:
+                        logger.warning(f"⚠️ 发送错误事件失败，连接已断开: {str(ex)}")
                 finally:
                     # 停止进度跟踪
                     try:
@@ -362,7 +415,7 @@ class StreamingResponseHandler(IStreamingResponseHandler):
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
                     "X-Accel-Buffering": "no",
-                    "X-Task-ID": task_id,  # 添加任务ID到响应头
+                    "X-Task-ID": task_id,
                     "X-Trace-ID": trace_id or "unknown"
                 }
             )
@@ -374,7 +427,8 @@ class StreamingResponseHandler(IStreamingResponseHandler):
     async def create_training_log_stream(
         self,
         task_id: str,
-        trace_id: Optional[str] = None
+        trace_id: Optional[str] = None,
+        http_request: Optional[Request] = None  # 新增：用于检测客户端连接
     ) -> Any:
         """
         创建训练日志流式响应
@@ -382,6 +436,7 @@ class StreamingResponseHandler(IStreamingResponseHandler):
         Args:
             task_id: 任务ID
             trace_id: 追踪ID
+            http_request: FastAPI Request对象，用于检测连接状态
             
         Returns:
             StreamingResponse: 训练日志流式响应
@@ -396,6 +451,11 @@ class StreamingResponseHandler(IStreamingResponseHandler):
                 try:
                     # 订阅进度更新
                     async for update in progress_tracker.subscribe_to_progress(task_id):
+                        # 检测客户端是否断开连接
+                        if http_request and await http_request.is_disconnected():
+                            logger.info("🛑 客户端已断开连接，停止训练日志流")
+                            break
+                        
                         if update.get("logs"):
                             log_response = {
                                 "step": "training_logs",
@@ -409,15 +469,22 @@ class StreamingResponseHandler(IStreamingResponseHandler):
                             chunk = self.format_stream_chunk(log_response)
                             yield chunk
                 
+                except (BrokenPipeError, ConnectionResetError) as e:
+                    # 捕获连接断开异常
+                    logger.info(f"🛑 客户端已断开连接，停止处理 - {e.__class__.__name__}: {str(e)}")
+                    return
                 except Exception as e:
-                    logger.error(f"训练日志流生成失败: {str(e)}")
-                    error_response = {
-                        "step": "error",
-                        "status": "error",
-                        "error": f"训练日志流失败: {str(e)}"
-                    }
-                    error_chunk = self.format_stream_chunk(error_response)
-                    yield error_chunk
+                    logger.error(f"❌ 训练日志流生成失败: {str(e)}")
+                    try:
+                        error_response = {
+                            "step": "error",
+                            "status": "error",
+                            "error": f"训练日志流失败: {str(e)}"
+                        }
+                        error_chunk = self.format_stream_chunk(error_response)
+                        yield error_chunk
+                    except Exception as ex:
+                        logger.warning(f"⚠️ 发送错误事件失败，连接已断开: {str(ex)}")
             
             return StreamingResponse(
                 training_log_generator(),
