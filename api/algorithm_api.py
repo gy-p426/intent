@@ -44,9 +44,15 @@ class AlgorithmIntegrationAPI:
             summary="执行算法分析",
             description="接收自然语言查询，执行完整的算法分析流程并返回流式响应"
         )
-        async def execute_algorithm(request: AlgorithmRequest) -> StreamingResponse:
+        async def execute_algorithm(
+            request: AlgorithmRequest,
+            http_request: Request  # 新增：获取HTTP请求对象，用于检测连接状态
+        ) -> StreamingResponse:
             """
             算法执行接口
+            
+            在流式响应中检测客户端连接状态。
+            当客户端关闭连接时，后端立即停止处理，释放资源。
             
             接收用户的自然语言查询，通过算法集成服务执行完整的分析流程，
             包括算法类型识别、参数提取、SQL生成、数据检索和算法执行。
@@ -61,7 +67,7 @@ class AlgorithmIntegrationAPI:
                         detail="Service not available: Algorithm integration service not initialized"
                     )
                 
-                logger.info(f"收到算法执行请求: {request.question}, agent_algorithm={request.agent_algorithm}")
+                logger.info(f"收到算法执行请求: {request.question}, window_id={request.window_id},session_id={request.session_id},agent_algorithm={request.agent_algorithm}")
                 
                 # 创建响应生成器
                 response_generator = self.algorithm_service.process_algorithm_request(
@@ -74,8 +80,11 @@ class AlgorithmIntegrationAPI:
                 
                 # 根据请求选择响应格式
                 if request.stream:
-                    # 返回流式响应
-                    return await self.streaming_handler.create_streaming_response(response_generator)
+                    # 返回流式响应，传递http_request用于检测连接状态
+                    return await self.streaming_handler.create_streaming_response(
+                        response_generator,
+                        http_request=http_request  # 新增
+                    )
                 else:
                     # 收集所有响应并返回最终结果
                     final_response = None
@@ -178,10 +187,14 @@ class AlgorithmIntegrationAPI:
         async def execute_algorithm_sse(
             question: str,
             window_id: str,
-            session_id: str
+            session_id: str,
+            http_request: Request  # 新增：获取HTTP请求对象，用于检测连接状态
         ) -> StreamingResponse:
             """
             算法执行接口 (Server-Sent Events格式)
+            
+            在流式响应中检测客户端连接状态。
+            当客户端关闭连接时，后端立即停止处理，释放资源。
             
             与execute_algorithm相同的功能，但使用SSE格式返回流式响应，
             更适合前端JavaScript EventSource API。
@@ -205,8 +218,11 @@ class AlgorithmIntegrationAPI:
                     auto_analysis=None
                 )
                 
-                # 返回SSE格式的流式响应
-                return await self.streaming_handler.create_sse_response(response_generator)
+                # 返回SSE格式的流式响应，传递http_request用于检测连接状态
+                return await self.streaming_handler.create_sse_response(
+                    response_generator,
+                    http_request=http_request  # 新增
+                )
                 
             except ValueError as e:
                 # 参数验证错误
