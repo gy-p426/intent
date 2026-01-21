@@ -128,6 +128,12 @@ def register_all_algorithms(nl2sql_client=None):
         from algorithm.multivariate_forecast.processor import MultivariateForecastProcessor
         algorithm_registry.register_algorithm(MultivariateForecastExtractor(nl2sql_client), MultivariateForecastProcessor())
 
+        # 因果分析算法
+        from algorithm.causality.extractor import CausalityExtractor
+        from algorithm.causality.processor import CausalityProcessor
+        algorithm_registry.register_algorithm(CausalityExtractor(nl2sql_client), CausalityProcessor())
+
+
         # 占比分析算法
         from algorithm.compare_proportion.extractor import CompareProportionExtractor
         from algorithm.compare_proportion.processor import CompareProportionProcessor

@@ -1219,6 +1219,8 @@ class AlgorithmExecutor(IAlgorithmExecutor):
                 return await self.execute_univariate_forecast(algorithm_request)
             elif "多变量" in algorithm_name or algorithm_type == "multivariate_forecast":
                 return await self.execute_multivariate_forecast(algorithm_request)
+            elif "因果" in algorithm_name or algorithm_type == "causality":
+                return await self.execute_causality_analysis(algorithm_request)
             elif algorithm_type == "predict":
                 # 预测类型需要根据子类型判断
                 sub_type = parameters.parameter_mapping.get('sub_algorithm', '')
