@@ -190,7 +190,7 @@ class CausalityProcessor(BaseAlgorithmProcessor):
             param_mapping: Dict[str, Any]
     ) -> None:
         """
-        验证清洗后的数据质量
+        验证清洗后的数据质量，自动过滤常量列
         
         Args:
             cleaned_data: 清洗后的数据
@@ -204,7 +204,10 @@ class CausalityProcessor(BaseAlgorithmProcessor):
         independent_vars = param_mapping.get('independent_variables', [])
         all_columns = [dependent_var] + (independent_vars if isinstance(independent_vars, list) else [])
 
-        # 验证每列的有效数据点数量
+        valid_columns = []
+        excluded_columns = []
+
+        # 验证每列的有效数据点数量和变异性
         for col in all_columns:
             valid_count = sum(1 for row in cleaned_data if row.get(col) is not None)
             
@@ -216,16 +219,45 @@ class CausalityProcessor(BaseAlgorithmProcessor):
                 logger.error(error_msg)
                 raise ValueError(error_msg)
             
-            # 检查数据变异性（所有值都相同的列无法进行因果分析）
+            # 检查数据变异性（所有值都相同的列自动排除）
             valid_values = [row.get(col) for row in cleaned_data if row.get(col) is not None]
             if len(set(valid_values)) == 1:
-                error_msg = (
-                    f"列'{col}'的所有值都相同（值为{valid_values[0]}），无法进行因果分析。"
+                # 记录警告，不抛出错误
+                logger.warning(
+                    f"列'{col}'的所有值都相同（值为{valid_values[0]}），将从因果分析中排除。"
                     f"因果分析需要变量有变化才能发现关系。"
                 )
-                logger.error(error_msg)
-                raise ValueError(error_msg)
+                excluded_columns.append(col)
+            else:
+                valid_columns.append(col)
 
+        # 验证过滤后至少有2列有效数据（1个因变量 + 1个自变量）
+        if len(valid_columns) < 2:
+            error_msg = (
+                f"过滤常量列后，只剩{len(valid_columns)}列有效数据，"
+                f"因果分析至少需要2列（1个因变量 + 1个自变量）。"
+                f"被排除的常量列: {excluded_columns}"
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        # 更新参数映射，移除被排除的列
+        if excluded_columns:
+            logger.info(f"因果分析将使用{len(valid_columns)}列数据，排除了{len(excluded_columns)}个常量列: {excluded_columns}")
+            
+            # 更新因变量（如果被排除则清空）
+            if dependent_var in excluded_columns:
+                param_mapping['dependent_variable'] = None
+            
+            # 更新自变量列表（移除被排除的列）
+            if isinstance(independent_vars, list):
+                param_mapping['independent_variables'] = [
+                    var for var in independent_vars if var not in excluded_columns
+                ]
+            
+            # 保存排除列信息供后续使用
+            param_mapping['excluded_columns'] = excluded_columns
+        
         logger.info("清洗后的数据验证通过")
 
     async def _build_algorithm_config(
@@ -234,12 +266,17 @@ class CausalityProcessor(BaseAlgorithmProcessor):
             param_mapping: Dict[str, Any]
     ) -> Dict[str, Any]:
         """构建符合算法服务要求的请求格式"""
-        # 获取所有列名
+        # 获取所有列名（已过滤常量列）
         dependent_var = param_mapping.get('dependent_variable')
         independent_vars = param_mapping.get('independent_variables', [])
+        excluded_columns = param_mapping.get('excluded_columns', [])
         
-        # 构建列名列表（因变量在第一位）
-        columns = [dependent_var] + (independent_vars if isinstance(independent_vars, list) else [])
+        # 构建列名列表（因变量在第一位，排除None值）
+        columns = []
+        if dependent_var:
+            columns.append(dependent_var)
+        if isinstance(independent_vars, list):
+            columns.extend(independent_vars)
 
         config = {
             "columns": columns,
@@ -247,6 +284,11 @@ class CausalityProcessor(BaseAlgorithmProcessor):
                 "analysis_type": "causal"
             }
         }
+        
+        # 如果有排除的列，添加到配置中
+        if excluded_columns:
+            config["excluded_columns"] = excluded_columns
+            config["excluded_reason"] = "列的所有值相同，无法进行因果分析"
 
         return config
 
