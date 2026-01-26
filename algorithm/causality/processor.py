@@ -265,21 +265,23 @@ class CausalityProcessor(BaseAlgorithmProcessor):
             cleaned_data: List[Dict[str, Any]],
             param_mapping: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """构建符合算法服务要求的请求格式"""
+        """构建符合算法服务要求的请求格式（新格式：因变量和自变量分开）"""
         # 获取所有列名（已过滤常量列）
         dependent_var = param_mapping.get('dependent_variable')
         independent_vars = param_mapping.get('independent_variables', [])
         excluded_columns = param_mapping.get('excluded_columns', [])
         
-        # 构建列名列表（因变量在第一位，排除None值）
-        columns = []
-        if dependent_var:
-            columns.append(dependent_var)
-        if isinstance(independent_vars, list):
-            columns.extend(independent_vars)
+        # 验证因变量存在
+        if not dependent_var:
+            raise ValueError("因变量不能为空")
+        
+        # 验证自变量列表
+        if not independent_vars or not isinstance(independent_vars, list):
+            raise ValueError("自变量列表不能为空")
 
         config = {
-            "columns": columns,
+            "dependent_variable": dependent_var,  # 因变量
+            "independent_variables": independent_vars,  # 自变量列表
             "options": {
                 "analysis_type": "causal"
             }
@@ -297,7 +299,7 @@ class CausalityProcessor(BaseAlgorithmProcessor):
             request: AlgorithmExecutionRequest,
             algorithm_config: AlgorithmConfig
     ) -> bool:
-        """验证因果分析算法输入"""
+        """验证因果分析算法输入（新格式：因变量和自变量分开）"""
         try:
             config = request.config
             data_rows = request.data_rows
@@ -307,17 +309,30 @@ class CausalityProcessor(BaseAlgorithmProcessor):
                 logger.error("验证失败：数据行为空，无法执行因果分析")
                 return False
 
-            # 验证列配置
-            columns = config.get('columns', [])
-            if len(columns) < 2:
+            # 验证因变量
+            dependent_var = config.get('dependent_variable')
+            if not dependent_var:
+                logger.error("验证失败：缺少因变量（dependent_variable）")
+                return False
+
+            # 验证自变量
+            independent_vars = config.get('independent_variables', [])
+            if not independent_vars or not isinstance(independent_vars, list):
+                logger.error("验证失败：缺少自变量（independent_variables）或格式不正确")
+                return False
+
+            if len(independent_vars) < 1:
                 logger.error(
-                    f"验证失败：因果分析至少需要2列数据（1个因变量 + 1个自变量），"
-                    f"当前只有{len(columns)}列。请检查参数提取结果。"
+                    f"验证失败：因果分析至少需要1个自变量，"
+                    f"当前有{len(independent_vars)}个。请检查参数提取结果。"
                 )
                 return False
 
+            # 验证所有列（因变量 + 自变量）
+            all_columns = [dependent_var] + independent_vars
+
             # 验证每列至少有2个数据点
-            for col in columns:
+            for col in all_columns:
                 if col not in data_rows[0]:
                     logger.error(f"验证失败：数据中缺少列'{col}'。请检查SQL查询结果和列名映射。")
                     return False
@@ -332,10 +347,13 @@ class CausalityProcessor(BaseAlgorithmProcessor):
                     return False
 
             # 验证数据质量
-            if not await self._validate_data_quality(data_rows, columns):
+            if not await self._validate_data_quality(data_rows, all_columns):
                 return False
 
-            logger.info("因果分析算法输入验证通过")
+            logger.info(
+                f"因果分析算法输入验证通过 - 因变量: {dependent_var}, "
+                f"自变量数: {len(independent_vars)}"
+            )
             return True
 
         except Exception as e:

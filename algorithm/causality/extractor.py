@@ -56,7 +56,7 @@ class CausalityExtractor(BaseAlgorithmExtractor):
 {schema_text}
         
 严格输出规则:
-1. dependent_variable的值必须是数据库中实际存在的列注释,注意要将因变量,即结果对应的字段放在第一列
+1. dependent_variable的值必须是数据库中实际存在的列注释，即用户想要分析的结果变量
 2. independent_variables的值必须是数据库中实际存在的数值型列注释列表
    - 主动分析并包含所有可能相关的数值型字段
    - 不要只选择用户明确提到的字段,要主动寻找其他潜在影响因素

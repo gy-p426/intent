@@ -490,56 +490,81 @@ class AlgorithmAPIClient:
     
     async def call_causality_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        调用因果分析服务API
+        调用因果分析服务API（新格式：因变量和自变量分开）
         
         Args:
             data_rows: 数据行列表
-            config: 算法配置
+            config: 算法配置，包含dependent_variable和independent_variables
             
         Returns:
             Dict[str, Any]: API响应结果
         """
         try:
-            # 构建请求数据
+            # 从config中提取因变量和自变量
+            dependent_var = config.get('dependent_variable')
+            independent_vars = config.get('independent_variables', [])
+            
+            if not dependent_var:
+                logger.error("因果分析配置中缺少dependent_variable字段")
+                return {
+                    "error": "配置错误：缺少dependent_variable字段",
+                    "status": "error"
+                }
+            
+            if not independent_vars or not isinstance(independent_vars, list):
+                logger.error("因果分析配置中缺少independent_variables字段或格式不正确")
+                return {
+                    "error": "配置错误：缺少independent_variables字段或格式不正确",
+                    "status": "error"
+                }
+            
+            # 构建新格式的请求数据
             request_data = {
-                "data": [],
+                "dependent_variable": {
+                    "name": dependent_var,
+                    "values": []
+                },
+                "independent_variables": [],
                 "options": {
                     "analysis_type": "causal"
                 }
             }
             
-            # 从config中提取列名
-            columns = config.get('columns', [])
-            
-            if not columns:
-                logger.error("因果分析配置中缺少columns字段")
+            # 提取因变量的值
+            dependent_values = [row.get(dependent_var) for row in data_rows if row.get(dependent_var) is not None]
+            if not dependent_values:
+                logger.error(f"因变量 {dependent_var} 没有有效数据")
                 return {
-                    "error": "配置错误：缺少columns字段",
+                    "error": f"数据错误：因变量 {dependent_var} 没有有效数据",
                     "status": "error"
                 }
+            request_data["dependent_variable"]["values"] = dependent_values
             
-            # 转换数据格式：从行格式转换为列格式
-            for col_name in columns:
-                values = [row.get(col_name) for row in data_rows if row.get(col_name) is not None]
+            # 提取自变量的值
+            for var_name in independent_vars:
+                values = [row.get(var_name) for row in data_rows if row.get(var_name) is not None]
                 
                 if not values:
-                    logger.warning(f"列 {col_name} 没有有效数据")
+                    logger.warning(f"自变量 {var_name} 没有有效数据，跳过")
                     continue
                 
-                request_data["data"].append({
-                    "name": col_name,
+                request_data["independent_variables"].append({
+                    "name": var_name,
                     "values": values
                 })
             
             # 验证数据
-            if len(request_data["data"]) < 2:
-                logger.error(f"因果分析至少需要2列数据，当前只有{len(request_data['data'])}列")
+            if len(request_data["independent_variables"]) < 1:
+                logger.error("因果分析至少需要1个有效的自变量")
                 return {
-                    "error": "数据不足：因果分析至少需要2列数据",
+                    "error": "数据不足：因果分析至少需要1个有效的自变量",
                     "status": "error"
                 }
             
-            logger.info(f"调用因果分析API，数据列数: {len(request_data['data'])}")
+            logger.info(
+                f"调用因果分析API - 因变量: {dependent_var}, "
+                f"自变量数: {len(request_data['independent_variables'])}"
+            )
             logger.debug(f"因果分析请求数据: {request_data}")
             
             # 调用因果分析服务
