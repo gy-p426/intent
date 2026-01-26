@@ -307,6 +307,17 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 'is_array': True,
                 'required': True
             }
+        elif algorithm_type == AlgorithmType.CAUSALITY:
+            required_columns['dependent_variable'] = {
+                'description': '因变量列名，即需要分析的结果变量',
+                'is_array': False,
+                'required': True
+            }
+            required_columns['independent_variables'] = {
+                'description': '自变量列名列表，即可能影响结果的因素变量',
+                'is_array': True,
+                'required': True
+            }
         else:
             # 默认情况：至少需要一个ID列和特征列
             required_columns['id_column'] = {
@@ -401,7 +412,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             yield AlgorithmResponse(
                 step=StreamingStep.SQL_GENERATION,
                 status="processing",
-                data={"message": "正在生成SQL查询..."},
+                data={"message": "正在生成查询语句..."},
                 timestamp=datetime.utcnow()
             )
             
@@ -686,7 +697,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                             'manual_selection_token': manual_selection_token,
                             'db_schema_options': db_schema_options,
                             'required_columns': required_columns,
-                            'message': '请在前端选择需要使用的表/列信息后继续'
+                            'message': ' 如需要更换分析字段点击“选择字段”按钮从所列表中选择需要分析的字段，再点击“执行分析””'
                         },
                         timestamp=datetime.utcnow()
                     )

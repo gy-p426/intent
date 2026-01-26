@@ -1180,83 +1180,83 @@ class AlgorithmExecutor(IAlgorithmExecutor):
             logger.error(f"SQL结果转换为算法输入失败: {str(e)}")
             raise ValueError(f"数据转换失败: {str(e)}")
     
-    async def execute_algorithm_with_sql_data(
-        self,
-        sql_result: List[Dict[str, Any]],
-        algorithm_config: AlgorithmConfig,
-        parameters: AlgorithmParameters
-    ) -> AlgorithmExecutionResponse:
-        """
-        使用SQL数据执行算法的便捷方法
-        
-        Args:
-            sql_result: SQL查询结果
-            algorithm_config: 算法配置
-            parameters: 算法参数
-            
-        Returns:
-            AlgorithmExecutionResponse: 执行响应
-        """
-        logger.info(f"使用SQL数据执行{algorithm_config.name}算法")
-        
-        try:
-            # 转换SQL结果为算法输入
-            algorithm_request = await self.convert_sql_result_to_algorithm_input(
-                sql_result, algorithm_config, parameters
-            )
-            
-            # 根据算法类型执行相应的算法
-            algorithm_type = parameters.algorithm_type.value
-            algorithm_name = algorithm_config.name
-            
-            if "聚类" in algorithm_name or algorithm_type == "cluster":
-                return await self.execute_clustering(algorithm_request)
-            elif "分类" in algorithm_name or algorithm_type == "classify":
-                return await self.execute_classification(algorithm_request)
-            elif "趋势" in algorithm_name or algorithm_type == "trend":
-                return await self.execute_trend_analysis(algorithm_request)
-            elif "单变量" in algorithm_name or algorithm_type == "univariate_forecast":
-                return await self.execute_univariate_forecast(algorithm_request)
-            elif "多变量" in algorithm_name or algorithm_type == "multivariate_forecast":
-                return await self.execute_multivariate_forecast(algorithm_request)
-            elif "因果" in algorithm_name or algorithm_type == "causality":
-                return await self.execute_causality_analysis(algorithm_request)
-            elif algorithm_type == "predict":
-                # 预测类型需要根据子类型判断
-                sub_type = parameters.parameter_mapping.get('sub_algorithm', '')
-                if 'univariate' in sub_type or '单变量' in sub_type:
-                    return await self.execute_univariate_forecast(algorithm_request)
-                elif 'multivariate' in sub_type or '多变量' in sub_type:
-                    return await self.execute_multivariate_forecast(algorithm_request)
-                else:
-                    # 默认使用单变量预测
-                    return await self.execute_univariate_forecast(algorithm_request)
-            # elif algorithm_type == "dbscan" or "dbscan" in algorithm_name.lower() or "密度聚类" in algorithm_name:
-            #     return await self.execute_dbscan(algorithm_request)
-            # elif algorithm_type == "iforest" or "iforest" in algorithm_name.lower() or "孤立森林" in algorithm_name:
-            #     return await self.execute_iforest(algorithm_request)
-            elif "异常" in algorithm_config.name or parameters.algorithm_type.value == "anomaly":
-                return await self.execute_anomaly_detection(algorithm_request)
-            elif "关联" in algorithm_name or algorithm_type == "associate":
-                return await self.execute_association(algorithm_request)
-            elif ("占比" in algorithm_name
-                  or "贡献" in algorithm_name or "排行" in algorithm_name
-                  or "proportion" in algorithm_type):
-                return await self.execute_compare_proportion(algorithm_request)
-            else:
-                # 对于其他算法类型，可以扩展支持
-                logger.warning(f"暂不支持的算法类型: {parameters.algorithm_type}")
-                return AlgorithmExecutionResponse(
-                    status="failed",
-                    message=f"暂不支持的算法类型: {parameters.algorithm_type}"
-                )
-                
-        except Exception as e:
-            logger.error(f"使用SQL数据执行算法失败: {str(e)}")
-            return AlgorithmExecutionResponse(
-                status="failed",
-                message=f"算法执行失败: {str(e)}"
-            )
+    # async def execute_algorithm_with_sql_data(
+    #     self,
+    #     sql_result: List[Dict[str, Any]],
+    #     algorithm_config: AlgorithmConfig,
+    #     parameters: AlgorithmParameters
+    # ) -> AlgorithmExecutionResponse:
+    #     """
+    #     使用SQL数据执行算法的便捷方法
+    #
+    #     Args:
+    #         sql_result: SQL查询结果
+    #         algorithm_config: 算法配置
+    #         parameters: 算法参数
+    #
+    #     Returns:
+    #         AlgorithmExecutionResponse: 执行响应
+    #     """
+    #     logger.info(f"使用SQL数据执行{algorithm_config.name}算法")
+    #
+    #     try:
+    #         # 转换SQL结果为算法输入
+    #         algorithm_request = await self.convert_sql_result_to_algorithm_input(
+    #             sql_result, algorithm_config, parameters
+    #         )
+    #
+    #         # 根据算法类型执行相应的算法
+    #         algorithm_type = parameters.algorithm_type.value
+    #         algorithm_name = algorithm_config.name
+    #
+    #         if "聚类" in algorithm_name or algorithm_type == "cluster":
+    #             return await self.execute_clustering(algorithm_request)
+    #         elif "分类" in algorithm_name or algorithm_type == "classify":
+    #             return await self.execute_classification(algorithm_request)
+    #         elif "趋势" in algorithm_name or algorithm_type == "trend":
+    #             return await self.execute_trend_analysis(algorithm_request)
+    #         elif "单变量" in algorithm_name or algorithm_type == "univariate_forecast":
+    #             return await self.execute_univariate_forecast(algorithm_request)
+    #         elif "多变量" in algorithm_name or algorithm_type == "multivariate_forecast":
+    #             return await self.execute_multivariate_forecast(algorithm_request)
+    #         elif "因果" in algorithm_name or algorithm_type == "causality":
+    #             return await self.execute_causality_analysis(algorithm_request)
+    #         elif algorithm_type == "predict":
+    #             # 预测类型需要根据子类型判断
+    #             sub_type = parameters.parameter_mapping.get('sub_algorithm', '')
+    #             if 'univariate' in sub_type or '单变量' in sub_type:
+    #                 return await self.execute_univariate_forecast(algorithm_request)
+    #             elif 'multivariate' in sub_type or '多变量' in sub_type:
+    #                 return await self.execute_multivariate_forecast(algorithm_request)
+    #             else:
+    #                 # 默认使用单变量预测
+    #                 return await self.execute_univariate_forecast(algorithm_request)
+    #         # elif algorithm_type == "dbscan" or "dbscan" in algorithm_name.lower() or "密度聚类" in algorithm_name:
+    #         #     return await self.execute_dbscan(algorithm_request)
+    #         # elif algorithm_type == "iforest" or "iforest" in algorithm_name.lower() or "孤立森林" in algorithm_name:
+    #         #     return await self.execute_iforest(algorithm_request)
+    #         elif "异常" in algorithm_config.name or parameters.algorithm_type.value == "anomaly":
+    #             return await self.execute_anomaly_detection(algorithm_request)
+    #         elif "关联" in algorithm_name or algorithm_type == "associate":
+    #             return await self.execute_association(algorithm_request)
+    #         elif ("占比" in algorithm_name
+    #               or "贡献" in algorithm_name or "排行" in algorithm_name
+    #               or "proportion" in algorithm_type):
+    #             return await self.execute_compare_proportion(algorithm_request)
+    #         else:
+    #             # 对于其他算法类型，可以扩展支持
+    #             logger.warning(f"暂不支持的算法类型: {parameters.algorithm_type}")
+    #             return AlgorithmExecutionResponse(
+    #                 status="failed",
+    #                 message=f"暂不支持的算法类型: {parameters.algorithm_type}"
+    #             )
+    #
+    #     except Exception as e:
+    #         logger.error(f"使用SQL数据执行算法失败: {str(e)}")
+    #         return AlgorithmExecutionResponse(
+    #             status="failed",
+    #             message=f"算法执行失败: {str(e)}"
+    #         )
     
     async def poll_async_task_with_manager(
         self,
