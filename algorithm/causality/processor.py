@@ -190,14 +190,14 @@ class CausalityProcessor(BaseAlgorithmProcessor):
             param_mapping: Dict[str, Any]
     ) -> None:
         """
-        验证清洗后的数据质量，自动过滤常量列
+        验证清洗后的数据质量，自动过滤不符合要求的列
         
         Args:
             cleaned_data: 清洗后的数据
             param_mapping: 参数映射
             
         Raises:
-            ValueError: 数据验证失败
+            ValueError: 数据验证失败（所有列都不符合要求时）
         """
         # 获取所有列
         dependent_var = param_mapping.get('dependent_variable')
@@ -206,59 +206,91 @@ class CausalityProcessor(BaseAlgorithmProcessor):
 
         valid_columns = []
         excluded_columns = []
+        exclusion_reasons = {}
 
         # 验证每列的有效数据点数量和变异性
         for col in all_columns:
             valid_count = sum(1 for row in cleaned_data if row.get(col) is not None)
             
+            # 数据点不足，自动排除
             if valid_count < 2:
-                error_msg = (
-                    f"列'{col}'只有{valid_count}个有效数据点，因果分析至少需要2个数据点。"
-                    f"请检查数据源或增加数据量。"
+                logger.warning(
+                    f"列'{col}'只有{valid_count}个有效数据点（需要至少2个），将自动排除"
                 )
-                logger.error(error_msg)
-                raise ValueError(error_msg)
+                excluded_columns.append(col)
+                exclusion_reasons[col] = f"数据点不足（{valid_count}<2）"
+                continue
             
             # 检查数据变异性（所有值都相同的列自动排除）
             valid_values = [row.get(col) for row in cleaned_data if row.get(col) is not None]
             if len(set(valid_values)) == 1:
-                # 记录警告，不抛出错误
                 logger.warning(
-                    f"列'{col}'的所有值都相同（值为{valid_values[0]}），将从因果分析中排除。"
-                    f"因果分析需要变量有变化才能发现关系。"
+                    f"列'{col}'的所有值都相同（值为{valid_values[0]}），将自动排除"
                 )
                 excluded_columns.append(col)
-            else:
-                valid_columns.append(col)
+                exclusion_reasons[col] = f"常量列（值={valid_values[0]}）"
+                continue
+            
+            # 通过验证
+            valid_columns.append(col)
 
         # 验证过滤后至少有2列有效数据（1个因变量 + 1个自变量）
         if len(valid_columns) < 2:
             error_msg = (
-                f"过滤常量列后，只剩{len(valid_columns)}列有效数据，"
-                f"因果分析至少需要2列（1个因变量 + 1个自变量）。"
-                f"被排除的常量列: {excluded_columns}"
+                f"过滤后只剩{len(valid_columns)}列有效数据，"
+                f"因果分析至少需要2列（1个因变量 + 1个自变量）。\n"
+                f"被排除的列及原因:\n"
             )
+            for col in excluded_columns:
+                error_msg += f"  - {col}: {exclusion_reasons.get(col, '未知原因')}\n"
             logger.error(error_msg)
             raise ValueError(error_msg)
 
         # 更新参数映射，移除被排除的列
         if excluded_columns:
-            logger.info(f"因果分析将使用{len(valid_columns)}列数据，排除了{len(excluded_columns)}个常量列: {excluded_columns}")
+            logger.info(
+                f"因果分析将使用{len(valid_columns)}列数据，"
+                f"自动排除了{len(excluded_columns)}列: {excluded_columns}"
+            )
             
-            # 更新因变量（如果被排除则清空）
+            # 检查因变量是否被排除
             if dependent_var in excluded_columns:
-                param_mapping['dependent_variable'] = None
+                error_msg = (
+                    f"因变量'{dependent_var}'不符合要求，无法进行因果分析。\n"
+                    f"原因: {exclusion_reasons.get(dependent_var, '未知原因')}\n"
+                    f"因变量必须有至少2个不同的有效数据点。"
+                )
+                logger.error(error_msg)
+                raise ValueError(error_msg)
             
             # 更新自变量列表（移除被排除的列）
             if isinstance(independent_vars, list):
-                param_mapping['independent_variables'] = [
+                new_independent_vars = [
                     var for var in independent_vars if var not in excluded_columns
                 ]
+                param_mapping['independent_variables'] = new_independent_vars
+                
+                # 验证至少还有1个自变量
+                if len(new_independent_vars) < 1:
+                    error_msg = (
+                        f"所有自变量都被排除，无法进行因果分析。\n"
+                        f"被排除的自变量及原因:\n"
+                    )
+                    for var in independent_vars:
+                        if var in excluded_columns:
+                            error_msg += f"  - {var}: {exclusion_reasons.get(var, '未知原因')}\n"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
             
             # 保存排除列信息供后续使用
             param_mapping['excluded_columns'] = excluded_columns
+            param_mapping['exclusion_reasons'] = exclusion_reasons
         
-        logger.info("清洗后的数据验证通过")
+        logger.info(
+            f"数据验证通过 - 有效列: {len(valid_columns)}, "
+            f"排除列: {len(excluded_columns)}"
+        )
+
 
     async def _build_algorithm_config(
             self,
@@ -299,7 +331,7 @@ class CausalityProcessor(BaseAlgorithmProcessor):
             request: AlgorithmExecutionRequest,
             algorithm_config: AlgorithmConfig
     ) -> bool:
-        """验证因果分析算法输入（新格式：因变量和自变量分开）"""
+        """验证因果分析算法输入，自动过滤不符合要求的列"""
         try:
             config = request.config
             data_rows = request.data_rows
@@ -321,38 +353,95 @@ class CausalityProcessor(BaseAlgorithmProcessor):
                 logger.error("验证失败：缺少自变量（independent_variables）或格式不正确")
                 return False
 
-            if len(independent_vars) < 1:
-                logger.error(
-                    f"验证失败：因果分析至少需要1个自变量，"
-                    f"当前有{len(independent_vars)}个。请检查参数提取结果。"
-                )
-                return False
-
             # 验证所有列（因变量 + 自变量）
             all_columns = [dependent_var] + independent_vars
+            valid_columns = []
+            excluded_columns = []
+            exclusion_reasons = {}
 
-            # 验证每列至少有2个数据点
+            # 验证每列，自动过滤不符合要求的列
             for col in all_columns:
+                # 检查列是否存在
                 if col not in data_rows[0]:
-                    logger.error(f"验证失败：数据中缺少列'{col}'。请检查SQL查询结果和列名映射。")
-                    return False
+                    logger.warning(f"列'{col}'在数据中不存在，将自动排除")
+                    excluded_columns.append(col)
+                    exclusion_reasons[col] = "列不存在"
+                    continue
 
                 # 统计有效数据点
                 valid_count = sum(1 for row in data_rows if row.get(col) is not None)
                 if valid_count < 2:
-                    logger.error(
-                        f"验证失败：列'{col}'只有{valid_count}个有效数据点，"
-                        f"因果分析至少需要2个数据点。请增加数据量或检查数据质量。"
+                    logger.warning(
+                        f"列'{col}'只有{valid_count}个有效数据点（需要至少2个），将自动排除"
                     )
-                    return False
+                    excluded_columns.append(col)
+                    exclusion_reasons[col] = f"数据点不足（{valid_count}<2）"
+                    continue
 
-            # 验证数据质量
-            if not await self._validate_data_quality(data_rows, all_columns):
+                # 检查数据质量
+                if not await self._check_column_quality(data_rows, col):
+                    logger.warning(f"列'{col}'数据质量不符合要求，将自动排除")
+                    excluded_columns.append(col)
+                    exclusion_reasons[col] = "数据质量不符合要求"
+                    continue
+
+                # 通过验证
+                valid_columns.append(col)
+
+            # 验证过滤后至少有2列（1个因变量 + 1个自变量）
+            if len(valid_columns) < 2:
+                error_msg = (
+                    f"过滤后只剩{len(valid_columns)}列有效数据，"
+                    f"因果分析至少需要2列（1个因变量 + 1个自变量）。\n"
+                    f"被排除的列及原因:\n"
+                )
+                for col in excluded_columns:
+                    error_msg += f"  - {col}: {exclusion_reasons.get(col, '未知原因')}\n"
+                logger.error(error_msg)
                 return False
 
+            # 更新配置，移除被排除的列
+            if excluded_columns:
+                logger.info(
+                    f"自动过滤了{len(excluded_columns)}列，"
+                    f"保留{len(valid_columns)}列用于因果分析"
+                )
+                
+                # 检查因变量是否被排除
+                if dependent_var in excluded_columns:
+                    error_msg = (
+                        f"因变量'{dependent_var}'不符合要求，无法进行因果分析。\n"
+                        f"原因: {exclusion_reasons.get(dependent_var, '未知原因')}\n"
+                        f"因变量必须有至少2个不同的有效数据点。"
+                    )
+                    logger.error(error_msg)
+                    return False
+                
+                # 更新自变量列表（移除被排除的列）
+                new_independent_vars = [
+                    var for var in independent_vars if var not in excluded_columns
+                ]
+                config['independent_variables'] = new_independent_vars
+                
+                # 验证至少还有1个自变量
+                if len(new_independent_vars) < 1:
+                    error_msg = (
+                        f"所有自变量都被排除，无法进行因果分析。\n"
+                        f"被排除的自变量及原因:\n"
+                    )
+                    for var in independent_vars:
+                        if var in excluded_columns:
+                            error_msg += f"  - {var}: {exclusion_reasons.get(var, '未知原因')}\n"
+                    logger.error(error_msg)
+                    return False
+                
+                # 保存排除信息
+                config['excluded_columns'] = excluded_columns
+                config['exclusion_reasons'] = exclusion_reasons
+
             logger.info(
-                f"因果分析算法输入验证通过 - 因变量: {dependent_var}, "
-                f"自变量数: {len(independent_vars)}"
+                f"因果分析算法输入验证通过 - 因变量: {config.get('dependent_variable')}, "
+                f"自变量数: {len(config.get('independent_variables', []))}"
             )
             return True
 
@@ -360,35 +449,37 @@ class CausalityProcessor(BaseAlgorithmProcessor):
             logger.error(f"因果分析算法输入验证过程中发生异常: {str(e)}")
             return False
 
-    async def _validate_data_quality(
+    async def _check_column_quality(
             self,
             data_rows: List[Dict[str, Any]],
-            columns: List[str]
+            col: str
     ) -> bool:
-        """验证数据质量"""
-        for col in columns:
-            # 检查数值型数据比例
-            numeric_count = 0
-            total_count = 0
+        """检查单列的数据质量"""
+        # 检查数值型数据比例
+        numeric_count = 0
+        total_count = 0
 
-            for row in data_rows:
-                value = row.get(col)
-                if value is not None:
-                    total_count += 1
-                    if isinstance(value, (int, float)):
-                        numeric_count += 1
+        for row in data_rows:
+            value = row.get(col)
+            if value is not None:
+                total_count += 1
+                if isinstance(value, (int, float)):
+                    numeric_count += 1
 
-            if total_count == 0:
-                logger.error(f"验证失败：列'{col}'没有有效数据。所有值都是None。")
-                return False
+        if total_count == 0:
+            return False
 
-            numeric_ratio = numeric_count / total_count
-            if numeric_ratio < 0.7:
-                logger.error(
-                    f"验证失败：列'{col}'的数值比例过低（{numeric_ratio:.1%}），"
-                    f"因果分析需要至少70%的数据为数值类型。"
-                    f"请检查数据类型转换或数据源。"
-                )
-                return False
+        numeric_ratio = numeric_count / total_count
+        
+        # 数值比例至少70%
+        if numeric_ratio < 0.7:
+            logger.warning(
+                f"列'{col}'的数值比例过低（{numeric_ratio:.1%}），"
+                f"需要至少70%的数据为数值类型"
+            )
+            return False
+
+        return True
+
 
         return True
