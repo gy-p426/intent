@@ -134,7 +134,7 @@ class AssociationExtractor(BaseAlgorithmExtractor):
     "analysis_mode": "pairwise"  // 可选,不确定可省略
   }},
   "required_columns": ["年龄", "学历", "工作年限", "薪资"],
-  "normalized_query": "获取员工信息的年龄、学历、工作年限、薪资,返回年龄、学历、工作年限、薪资共4列数据"
+  "normalized_query": "获取员工信息的年龄、学历、工作年限、薪资,返回年龄、学历、工作年限、薪资共4列数据，年龄放在第一列"
 }}
 
 严格输出规则：

@@ -49,8 +49,7 @@ ALGORITHM_TYPE_CHINESE_MAP = {
     AlgorithmType.TREND: "趋势分析",
     AlgorithmType.PROFILE: "画像分析",
     AlgorithmType.CAUSALITY: "因果分析",
-    AlgorithmType.ALERT: "预警分析",
-    AlgorithmType.RECOMMEND: "推荐分析"
+    AlgorithmType.NL2SQL: "智能检索"
 }
 
 
@@ -188,18 +187,85 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             )
             
             logger.info(f"开始处理算法请求: {question[:100]}..., agent_algorithm={agent_algorithm}", extra={'trace_id': trace_id})
+
+
+            # 步骤0: 判断是否是追问
+            from algorithm.models import AlgorithmResponse, StreamingStep
             
+            logger.info("开始追问判断", extra={'trace_id': trace_id})
+            yield AlgorithmResponse(
+                step=StreamingStep.INTENT_ANALYSIS,
+                status="processing",
+                data={"message": "正在分析问题意图..."},
+                timestamp=datetime.utcnow()
+            )
+            
+            try:
+                # 调用追问判断接口
+                continuous_result = await self.nl2sql_client.check_continuous_question(
+                    question=question,
+                    window_id=window_id,
+                    session_id=session_id
+                )
+                
+                is_continuous = continuous_result.get('isContinuous', False)
+                merged_question = continuous_result.get('mergedQuestion', question)
+                previous_question = continuous_result.get('previousQuestion', '')
+                reason = continuous_result.get('reason', '')
+                
+                # 构建返回消息
+                if is_continuous:
+                    message = f"用户追问上一个问题：{previous_question}，故新的问题为：{merged_question}"
+                else:
+                    prev_text = previous_question if previous_question else "无"
+                    message = f"用户上一个问题为：{prev_text}，本次问题为：{question}，不是对上一个问题的追问"
+                
+                logger.info(f"追问判断完成: is_continuous={is_continuous}, merged_question={merged_question}", extra={'trace_id': trace_id})
+                
+                # 流式返回追问判断结果
+                yield AlgorithmResponse(
+                    step=StreamingStep.INTENT_ANALYSIS,
+                    status="completed",
+                    data={
+                        "is_continuous": is_continuous,
+                        "merged_question": merged_question,
+                        "message": message,
+                        "previous_question": previous_question or ""
+                    },
+                    timestamp=datetime.utcnow()
+                )
+                
+                # 如果是追问，使用合并后的问题继续处理
+                if is_continuous:
+                    question = merged_question
+                    logger.info(f"使用合并后的问题继续处理: {question}", extra={'trace_id': trace_id})
+                
+            except Exception as e:
+                logger.warning(f"追问判断失败，使用原始问题继续处理: {str(e)}", extra={'trace_id': trace_id})
+                # 追问判断失败不影响主流程，使用原始问题继续
+                yield AlgorithmResponse(
+                    step=StreamingStep.INTENT_ANALYSIS,
+                    status="completed",
+                    data={
+                        "is_continuous": False,
+                        "merged_question": question,
+                        "message": f"用户上一个问题为：无，本次问题为：{question}，不是对上一个问题的追问，故用户的问题为：{question}",
+                        "previous_question": ""
+                    },
+                    timestamp=datetime.utcnow()
+                )
+
             # === 判断是否使用Agent分析 ===
             if agent_algorithm:
                 # 使用Agent算法分析流程
                 async for response in self._process_agent_algorithm(
-                    question, window_id, session_id, request_context
+                    merged_question, window_id, session_id, request_context
                 ):
                     yield response
             else:
                 # 使用传统算法流程（带错误处理）
                 async for response in self._process_with_error_handling(
-                    question, window_id, session_id, request_context
+                    merged_question, window_id, session_id, request_context,user_id
                 ):
                     yield response
                 
@@ -529,7 +595,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         question: str,
         window_id: str,
         session_id: str,
-        request_context: Dict[str, Any]
+        request_context: Dict[str, Any],
+        user_id: str
     ) -> AlgorithmResponseGenerator:
         """
         带错误处理的处理流程
@@ -582,6 +649,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                     },
                     timestamp=datetime.utcnow()
                 )
+
+
                 
             except Exception as e:
                 execution_time_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
@@ -591,6 +660,55 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                     question=question,
                     original_error=e
                 )
+
+            # NL2SQL数据查询分支：直接调用NL2SQL流式接口
+            if algorithm_type == AlgorithmType.NL2SQL:
+                logger.info("识别为NL2SQL数据查询，调用query-stream接口", extra={'trace_id': trace_id})
+                
+                try:
+                    # 调用NL2SQL的query-stream接口，流式返回数据
+                    async for nl2sql_event in self.nl2sql_client.query_stream(
+                        question=question,
+                        window_id=window_id,
+                        session_id=session_id,
+                        user_id=user_id
+                    ):
+                        # 将NL2SQL的流式事件包装在NL2SQLStreamResponse中返回给前端
+                        from algorithm.models import NL2SQLStreamResponse
+                        yield AlgorithmResponse(
+                            step=StreamingStep.DATA_RETRIEVAL,
+                            status="processing",
+                            data= nl2sql_event,
+                            timestamp=datetime.utcnow()
+                        )
+                        
+                        # 检查是否完成
+                        if nl2sql_event.get('step') == 'completed':
+                            logger.info("NL2SQL数据查询完成", extra={'trace_id': trace_id})
+                            # yield AlgorithmResponse(
+                            #     step=StreamingStep.COMPLETED,
+                            #     status="completed",
+                            #     data={
+                            #         "message": "数据查询完成",
+                            #         "nl2sql_result": nl2sql_event
+                            #     },
+                            #     timestamp=datetime.utcnow()
+                            # )
+                            return
+                        
+                        # 检查错误
+                        elif nl2sql_event.get('step') == 'error':
+                            error_msg = nl2sql_event.get('error', '未知错误')
+                            logger.error(f"NL2SQL数据查询失败: {error_msg}", extra={'trace_id': trace_id})
+                            raise Exception(f"数据查询失败: {error_msg}")
+                
+                except Exception as e:
+                    logger.error(f"NL2SQL数据查询异常: {str(e)}", extra={'trace_id': trace_id})
+                    structured_logger.log_error(e, trace_id, StreamingStep.DATA_RETRIEVAL, algorithm_type=algorithm_type)
+                    raise Exception(f"数据查询失败: {str(e)}")
+                
+                # NL2SQL流程结束，不再执行后续步骤
+                return
             
             # 步骤2: 提取算法参数
             start_time = datetime.utcnow()
@@ -1021,6 +1139,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         """手动流程步骤 2：根据用户选择生成新的规范化查询"""
         from algorithm.models import AlgorithmResponse, StreamingStep
 
+        logger.info(f"开始处理手动流程步骤 2：根据用户选择生成新的规范化查询")
+        logger.info(f"手动流程步骤 2：根据用户选择生成新的规范化查询，参数: manual_selection_token={manual_selection_token}, manual_parameter_mapping={manual_parameter_mapping}, user_feedback={user_feedback}")
         ctx = self._manual_context_store.get(manual_selection_token)
         if not ctx:
             yield AlgorithmResponse(
@@ -1046,6 +1166,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             manual_parameter_mapping=manual_parameter_mapping,
             user_feedback=user_feedback,
         )
+        logger.info(f"新的规范化查询生成完成: {new_normalized_query}")
 
         yield AlgorithmResponse(
             step=StreamingStep.MANUAL_DB_SELECTION,

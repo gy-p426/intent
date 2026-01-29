@@ -25,9 +25,7 @@ class AlgorithmType(str, Enum):
     TREND = "trend"
     PROFILE = "profile"
     CAUSALITY = "causality"
-    ALERT = "alert"
-    RECOMMEND = "recommend"
-    COMPARE_PROPORTION = "compare_proportion"
+    NL2SQL = "nl2sql"
 
 
 class ResponseFormat(str, Enum):
@@ -39,6 +37,7 @@ class ResponseFormat(str, Enum):
 
 class StreamingStep(str, Enum):
     """流式响应步骤"""
+    INTENT_ANALYSIS = "intent_analysis"  # 意图分析（追问判断）
     ALGORITHM_IDENTIFICATION = "algorithm_identification"
     PARAMETER_EXTRACTION = "parameter_extraction"
     # 手动模式：用户选择数据库/列信息的交互步骤
@@ -188,6 +187,9 @@ class AlgorithmResponse(BaseModel):
     error: Optional[str] = Field(None, description="错误信息")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="时间戳")
 
+class NL2SQLStreamResponse(BaseModel):
+    """NL2SQL流式响应模型"""
+    nl2sqldata: Dict[str, Any] = Field(..., description="接收数据检索请求的流式返回")
 
 class AlgorithmResult(BaseModel):
     """最终算法结果模型"""

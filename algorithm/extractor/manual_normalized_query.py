@@ -23,6 +23,8 @@ def build_manual_normalized_query_messages(
     
     生成的中文查询描述(normalized_query)中一定写明返回的数据列注释，并且标名返回哪几列数据，否则无法正确解析，如"获取客户ID、流失状态、年龄、月使用量，返回客户ID、流失状态、年龄、月使用量共4列数据"！！！
     normalized_query一定要包含将用户选择的所有字段，必须体现用户选择的字段含义（优先使用 column_comment，其次 column_name）。
+    你将收到“用户选择的字段映射（JSON）”，里面是用户为算法输入配置的数据库表的中文列注释
+    normalized_query一定使用“用户选择的字段映射（JSON）”中的中文列注释，不要加字或减字
     尽量保持简洁明确，避免歧义
     
     输出JSON示例：
@@ -33,7 +35,6 @@ def build_manual_normalized_query_messages(
 
     user = (
         f"用户原始问题：{original_question}\n"
-        # f"算法类型：{algorithm_type}\n"
         f"用户选择的字段映射（JSON）：\n{mapping_json}\n"
     )
     if user_feedback:

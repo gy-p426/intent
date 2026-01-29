@@ -151,7 +151,6 @@ text,intent
 多变量时间序列预测,predict
 使用Prophet预测趋势,predict
 使用ARIMA预测销售,predict
-
 分析销售数据的周期性规律,multi_analysis
 检测出车次数有没有周期性,multi_analysis
 分析订单量的周期模式,multi_analysis
@@ -185,10 +184,6 @@ text,intent
 与去年同期对比业绩,multi_analysis
 本月vs上月的销售变化,multi_analysis
 今年vs去年的业绩对比,multi_analysis
-
-# 时间范围相关的 multi_analysis 意图示例
-
-# 环比分析带时间范围示例 (Requirements 1.1-1.5)
 对2025年8月的出车次数进行环比分析,multi_analysis
 分析本月销售额的环比变化,multi_analysis
 对上周的订单量进行环比分析,multi_analysis
@@ -204,8 +199,6 @@ text,intent
 对1月份进行环比分析,multi_analysis
 分析本月的出车次数环比增长率,multi_analysis
 对上月的业绩进行环比分析,multi_analysis
-
-# 同比分析带时间范围示例 (Requirements 2.1-2.4)
 对2025年8月的销售额进行同比分析,multi_analysis
 分析今年3月与去年3月的对比,multi_analysis
 对本季度进行同比分析,multi_analysis
@@ -221,8 +214,6 @@ text,intent
 对今年上半年进行同比分析,multi_analysis
 分析Q3季度的同比变化情况,multi_analysis
 对本年度进行同比分析,multi_analysis
-
-# 定基比分析带时间范围示例 (Requirements 3.1-3.3)
 以2020年为基期分析2025年的销售指数,multi_analysis
 以1月为基准计算8月的出车指数,multi_analysis
 以2019年为基期进行定基比分析,multi_analysis
@@ -238,8 +229,6 @@ text,intent
 以2019年Q1为基期进行定基比分析,multi_analysis
 以本年1月为基准分析各月的增长指数,multi_analysis
 以2021年为基期计算2022年至2025年的定基比,multi_analysis
-
-# 综合时间范围分析示例
 对2025年8月的数据进行综合分析,multi_analysis
 分析本月销售数据的周期性和环比变化,multi_analysis
 对Q2季度进行全面的时间序列分析,multi_analysis

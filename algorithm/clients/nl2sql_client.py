@@ -649,6 +649,247 @@ class NL2SQLClient(INL2SQLClient):
             "response_stats": self.response_processor.get_stats()
         }
     
+    async def query_stream(
+        self,
+        question: str,
+        window_id: str,
+        session_id: str,
+        user_id: str
+    ):
+        """
+        调用NL2SQL服务的/query-stream接口，流式返回查询处理进度
+        
+        Args:
+            question: 用户自然语言查询
+            window_id: 窗口ID
+            session_id: 会话ID
+            
+        Yields:
+            Dict[str, Any]: 流式返回的事件数据
+            
+        Raises:
+            ConnectionError: 服务连接失败时抛出
+            ValueError: 请求参数无效时抛出
+        """
+        start_time = datetime.utcnow()
+        logger.info(f"调用NL2SQL /query-stream接口: {question}...")
+        
+        try:
+            # 验证请求参数
+            if not question or not question.strip():
+                raise ValueError("查询问题不能为空")
+            
+            # 准备请求参数（过滤掉 None 值）
+            params = {
+                "question": question,
+                "windowId": window_id
+            }
+
+            # 只有当 session_id 不为 None 时才添加
+            if session_id is not None:
+                params["sessionId"] = session_id
+            # 只有当 user_id 不为 None 时才添加
+            if user_id is not None:
+                params["userId"] = user_id
+            
+            # 获取服务URL
+            base_url = await self._get_service_url()
+            session = await self._get_session()
+            url = f"{base_url.rstrip('/')}/api/query/query-stream"
+            
+            logger.debug(f"发送SSE请求到: {url}")
+            logger.debug(f"请求参数: {self._sanitize_log_data(params)}")
+            
+            # 发送GET请求（SSE通常使用GET，参数通过query string传递）
+            async with session.get(url, params=params) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"NL2SQL /query-stream接口返回错误: {response.status} - {error_text}")
+                    raise ConnectionError(f"NL2SQL /query-stream接口错误: HTTP {response.status}")
+                
+                # 逐行读取SSE流
+                async for line in response.content:
+                    line_str = line.decode('utf-8').strip()
+                    
+                    # 跳过空行和注释
+                    if not line_str or line_str.startswith(':'):
+                        continue
+                    
+                    # 解析SSE格式: data: {...}
+                    if line_str.startswith('data:'):
+                        data_str = line_str[5:].strip()
+                        
+                        try:
+                            event_data = json.loads(data_str)
+                            logger.debug(f"收到NL2SQL流式事件: step={event_data.get('step')}, status={event_data.get('status')}")
+                            yield event_data
+                            
+                            # 如果是完成或错误事件，结束流
+                            if event_data.get('step') in ['completed', 'error']:
+                                logger.info(f"NL2SQL流式查询完成: step={event_data.get('step')}")
+                                break
+                                
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"解析NL2SQL流式事件失败: {str(e)}, 数据: {data_str[:100]}")
+                            continue
+                
+                # 记录总耗时
+                total_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+                logger.info(f"NL2SQL /query-stream接口调用完成，总耗时: {total_time:.2f}ms")
+                
+        except aiohttp.ClientError as e:
+            logger.error(f"NL2SQL /query-stream接口连接失败: {str(e)}")
+            raise ConnectionError(f"无法连接到NL2SQL /query-stream接口: {str(e)}")
+        except asyncio.TimeoutError:
+            logger.error("NL2SQL /query-stream接口请求超时")
+            raise ConnectionError("NL2SQL /query-stream接口请求超时")
+        except Exception as e:
+            total_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+            logger.error(f"NL2SQL /query-stream接口调用失败，耗时: {total_time:.2f}ms，错误: {str(e)}")
+            raise
+
+    async def check_continuous_question(
+        self,
+        question: str,
+        window_id: str,
+        session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        调用NL2SQL服务的/contin_question接口判断是否为追问
+        
+        Args:
+            question: 用户自然语言查询
+            window_id: 窗口ID
+            session_id: 会话ID（可选）
+            
+        Returns:
+            Dict[str, Any]: 追问判断结果
+                {
+                    "isContinuous": bool,
+                    "mergedQuestion": str,
+                    "originalQuestion": str,
+                    "previousQuestion": str,
+                    "reason": str
+                }
+            
+        Raises:
+            ConnectionError: 服务连接失败时抛出
+            ValueError: 请求参数无效时抛出
+        """
+        start_time = datetime.utcnow()
+        logger.info(f"调用NL2SQL /contin_question接口: {question}...")
+        
+        try:
+            # 验证请求参数
+            if not question or not question.strip():
+                raise ValueError("查询问题不能为空")
+            
+            # 准备请求数据
+            request_data = {
+                "question": question,
+                "windowId": window_id
+            }
+            
+            # 如果提供了sessionId，添加到请求中
+            if session_id:
+                request_data["sessionId"] = session_id
+            
+            # 获取服务URL并发送HTTP请求
+            base_url = await self._get_service_url()
+            session = await self._get_session()
+            url = f"{base_url.rstrip('/')}/api/query/contin_question"
+            
+            logger.debug(f"发送请求到: {url}")
+            logger.debug(f"请求数据: {self._sanitize_log_data(request_data)}")
+            
+            async with session.post(url, json=request_data) as response:
+                if response.status == 200:
+                    try:
+                        raw_response = await response.json()
+                        
+                        # 检查响应是否成功
+                        if not raw_response.get('success', False):
+                            error_msg = raw_response.get('error', '未知错误')
+                            logger.error(f"NL2SQL /contin_question接口返回失败响应: {error_msg}")
+                            # 返回默认值：不是追问
+                            return {
+                                'isContinuous': False,
+                                'mergedQuestion': question,
+                                'originalQuestion': question,
+                                'previousQuestion': None,
+                                'reason': ''
+                            }
+                        
+                        # 提取data字段中的完整信息
+                        data = raw_response.get('data', {})
+                        result = {
+                            'isContinuous': data.get('isContinuous', False),
+                            'mergedQuestion': data.get('mergedQuestion', question),
+                            'originalQuestion': data.get('originalQuestion', question),
+                            'previousQuestion': data.get('previousQuestion'),
+                            'reason': data.get('reason', '')
+                        }
+                        
+                        # 记录成功日志
+                        execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+                        logger.info(f"NL2SQL /contin_question接口调用成功，是否追问: {result['isContinuous']}, 耗时: {execution_time:.2f}ms")
+                        
+                        return result
+                        
+                    except json.JSONDecodeError as e:
+                        logger.error(f"NL2SQL /contin_question接口返回无效JSON: {str(e)}")
+                        # 返回默认值：不是追问
+                        return {
+                            'isContinuous': False,
+                            'mergedQuestion': question,
+                            'originalQuestion': question,
+                            'previousQuestion': None,
+                            'reason': ''
+                        }
+                else:
+                    error_text = await response.text()
+                    logger.error(f"NL2SQL /contin_question接口返回错误: {response.status} - {error_text}")
+                    # 返回默认值：不是追问
+                    return {
+                        'isContinuous': False,
+                        'mergedQuestion': question,
+                        'originalQuestion': question,
+                        'previousQuestion': None,
+                        'reason': ''
+                    }
+                    
+        except aiohttp.ClientError as e:
+            logger.error(f"NL2SQL /contin_question接口连接失败: {str(e)}")
+            # 返回默认值：不是追问
+            return {
+                'isContinuous': False,
+                'mergedQuestion': question,
+                'originalQuestion': question,
+                'previousQuestion': None,
+                'reason': ''
+            }
+        except asyncio.TimeoutError:
+            logger.error("NL2SQL /contin_question接口请求超时")
+            # 返回默认值：不是追问
+            return {
+                'isContinuous': False,
+                'mergedQuestion': question,
+                'originalQuestion': question,
+                'previousQuestion': None,
+                'reason': ''
+            }
+        except Exception as e:
+            execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+            logger.error(f"NL2SQL /contin_question接口调用失败，耗时: {execution_time:.2f}ms，错误: {str(e)}")
+            # 返回默认值：不是追问
+            return {
+                'isContinuous': False,
+                'mergedQuestion': question,
+                'originalQuestion': question,
+                'previousQuestion': None,
+                'reason': ''
+            }
+
     async def validate_service_connection(self) -> Dict[str, Any]:
         """
         验证服务连接状态
