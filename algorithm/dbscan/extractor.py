@@ -25,12 +25,13 @@ class DBSCANExtractor(BaseAlgorithmExtractor):
             self,
             question: str,
             database_schema: Optional[List[DatabaseColumn]] = None,
-            window_id: str = "default"
+            window_id: str = "default",
+            user_id: int = None
     ) -> List[Dict[str, str]]:
         """构建DBSCAN特定的参数提取提示词"""
 
         # 从NL2SQL服务获取候选表信息和关键词
-        schema_text, query_db_result = await self._get_candidate_tables_from_nl2sql(question, window_id)
+        schema_text, query_db_result = await self._get_candidate_tables_from_nl2sql(question, window_id, user_id)
 
         # 保存查询结果供后续使用
         self._last_query_db_result = query_db_result

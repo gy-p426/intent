@@ -91,7 +91,8 @@ class ParameterExtractor(IParameterExtractor):
         question: str, 
         algorithm_type: AlgorithmType,
         database_schema: List[DatabaseColumn],
-        window_id: str = "default"
+        window_id: str = "default",
+        user_id: int = None
     ) -> AlgorithmParameters:
         """
         从用户查询中提取算法参数
@@ -124,7 +125,7 @@ class ParameterExtractor(IParameterExtractor):
                 logger.info(f"[参数提取调试] extractor.nl2sql_client: {algorithm_extractor.nl2sql_client}")
                 logger.info(f"[参数提取调试] extractor.nl2sql_client 是否为 None: {algorithm_extractor.nl2sql_client is None}")
                 return await self._extract_with_specific_extractor(
-                    algorithm_extractor, question, algorithm_type, database_schema, window_id
+                    algorithm_extractor, question, algorithm_type, database_schema, window_id, user_id
                 )
             else:
                 logger.info("使用通用提取器")
@@ -142,12 +143,13 @@ class ParameterExtractor(IParameterExtractor):
         question: str,
         algorithm_type: AlgorithmType,
         database_schema: List[DatabaseColumn],
-        window_id: str = "default"
+        window_id: str = "default",
+        user_id: int = None
     ) -> AlgorithmParameters:
         """使用算法特定提取器提取参数"""
         try:
             # 使用算法特定提取器
-            messages = await algorithm_extractor.build_extraction_prompt(question, database_schema, window_id)
+            messages = await algorithm_extractor.build_extraction_prompt(question, database_schema, window_id, user_id)
             response = await self.llm_client.chat_completion(messages)
             logger.debug(f"LLM响应: {response}")
             extraction_result = algorithm_extractor.parse_extraction_response(response)
@@ -338,7 +340,7 @@ class ParameterExtractor(IParameterExtractor):
         
         return messages
     
-    async def _get_candidate_tables_from_nl2sql(self, question: str, window_id: str = "default") -> tuple[str, Dict[str, Any]]:
+    async def _get_candidate_tables_from_nl2sql(self, question: str, window_id: str = "default", user_id:int = None) -> tuple[str, Dict[str, Any]]:
         """
         从NL2SQL服务获取候选表信息和关键词
         
@@ -354,7 +356,7 @@ class ParameterExtractor(IParameterExtractor):
             from algorithm.clients.nl2sql_client import NL2SQLClient
             
             async with NL2SQLClient() as nl2sql_client:
-                query_db_result = await nl2sql_client.query_db(question, window_id)
+                query_db_result = await nl2sql_client.query_db(question, window_id, user_id)
                 
                 candidate_tables = query_db_result.get('candidateTables', [])
                 if not candidate_tables:

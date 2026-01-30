@@ -67,13 +67,14 @@ class AlgorithmIntegrationAPI:
                         detail="Service not available: Algorithm integration service not initialized"
                     )
                 
-                logger.info(f"收到算法执行请求: {request.question}, window_id={request.window_id},session_id={request.session_id},agent_algorithm={request.agent_algorithm}")
+                logger.info(f"收到算法执行请求: {request.question}, window_id={request.window_id},session_id={request.session_id},agent_algorithm={request.agent_algorithm},user_id={request.user_id}")
                 
                 # 创建响应生成器
                 response_generator = self.algorithm_service.process_algorithm_request(
                     question=request.question,
                     window_id=request.window_id,
                     session_id=request.session_id,
+                    user_id=request.user_id,
                     auto_analysis=request.auto_analysis,
                     agent_algorithm=request.agent_algorithm  # 传递agent_algorithm参数
                 )

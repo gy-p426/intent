@@ -138,7 +138,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         question: str, 
         window_id: str, 
         session_id: str,
-        user_id: Optional[str] = None,
+        user_id: Optional[int] = None,
         auto_analysis: Optional[bool] = None,
         agent_algorithm: bool = False  # 新增参数
     ) -> AlgorithmResponseGenerator:
@@ -191,7 +191,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
 
             # 步骤0: 判断是否是追问
             from algorithm.models import AlgorithmResponse, StreamingStep
-            
+
             logger.info("开始追问判断", extra={'trace_id': trace_id})
             yield AlgorithmResponse(
                 step=StreamingStep.INTENT_ANALYSIS,
@@ -199,7 +199,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 data={"message": "正在分析问题意图..."},
                 timestamp=datetime.utcnow()
             )
-            
+
             try:
                 # 调用追问判断接口
                 continuous_result = await self.nl2sql_client.check_continuous_question(
@@ -207,21 +207,21 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                     window_id=window_id,
                     session_id=session_id
                 )
-                
+
                 is_continuous = continuous_result.get('isContinuous', False)
                 merged_question = continuous_result.get('mergedQuestion', question)
                 previous_question = continuous_result.get('previousQuestion', '')
                 reason = continuous_result.get('reason', '')
-                
+
                 # 构建返回消息
                 if is_continuous:
                     message = f"用户追问上一个问题：{previous_question}，故新的问题为：{merged_question}"
                 else:
                     prev_text = previous_question if previous_question else "无"
                     message = f"用户上一个问题为：{prev_text}，本次问题为：{question}，不是对上一个问题的追问"
-                
+
                 logger.info(f"追问判断完成: is_continuous={is_continuous}, merged_question={merged_question}", extra={'trace_id': trace_id})
-                
+
                 # 流式返回追问判断结果
                 yield AlgorithmResponse(
                     step=StreamingStep.INTENT_ANALYSIS,
@@ -234,12 +234,12 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                     },
                     timestamp=datetime.utcnow()
                 )
-                
+
                 # 如果是追问，使用合并后的问题继续处理
                 if is_continuous:
                     question = merged_question
                     logger.info(f"使用合并后的问题继续处理: {question}", extra={'trace_id': trace_id})
-                
+
             except Exception as e:
                 logger.warning(f"追问判断失败，使用原始问题继续处理: {str(e)}", extra={'trace_id': trace_id})
                 # 追问判断失败不影响主流程，使用原始问题继续
@@ -596,7 +596,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         window_id: str,
         session_id: str,
         request_context: Dict[str, Any],
-        user_id: str
+        user_id: int
     ) -> AlgorithmResponseGenerator:
         """
         带错误处理的处理流程
@@ -651,7 +651,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 )
 
 
-                
+
             except Exception as e:
                 execution_time_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
                 structured_logger.log_error(e, trace_id, StreamingStep.ALGORITHM_IDENTIFICATION)
@@ -664,7 +664,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             # NL2SQL数据查询分支：直接调用NL2SQL流式接口
             if algorithm_type == AlgorithmType.NL2SQL:
                 logger.info("识别为NL2SQL数据查询，调用query-stream接口", extra={'trace_id': trace_id})
-                
+
                 try:
                     # 调用NL2SQL的query-stream接口，流式返回数据
                     async for nl2sql_event in self.nl2sql_client.query_stream(
@@ -681,7 +681,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                             data= nl2sql_event,
                             timestamp=datetime.utcnow()
                         )
-                        
+
                         # 检查是否完成
                         if nl2sql_event.get('step') == 'completed':
                             logger.info("NL2SQL数据查询完成", extra={'trace_id': trace_id})
@@ -695,21 +695,21 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                             #     timestamp=datetime.utcnow()
                             # )
                             return
-                        
+
                         # 检查错误
                         elif nl2sql_event.get('step') == 'error':
                             error_msg = nl2sql_event.get('error', '未知错误')
                             logger.error(f"NL2SQL数据查询失败: {error_msg}", extra={'trace_id': trace_id})
                             raise Exception(f"数据查询失败: {error_msg}")
-                
+
                 except Exception as e:
                     logger.error(f"NL2SQL数据查询异常: {str(e)}", extra={'trace_id': trace_id})
                     structured_logger.log_error(e, trace_id, StreamingStep.DATA_RETRIEVAL, algorithm_type=algorithm_type)
                     raise Exception(f"数据查询失败: {str(e)}")
-                
+
                 # NL2SQL流程结束，不再执行后续步骤
                 return
-            
+
             # 步骤2: 提取算法参数
             start_time = datetime.utcnow()
             logger.info("开始参数提取", extra={'trace_id': trace_id})
@@ -856,7 +856,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                         nl2sql_request = NL2SQLRequest(
                             question=parameters.normalized_query,
                             window_id=window_id,
-                            session_id=session_id
+                            session_id=session_id,
+                            user_id=user_id,
                         )
                         nl2sql_response = await self._query_nl2sql_with_retry(nl2sql_request)
                     

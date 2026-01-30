@@ -57,7 +57,7 @@ class BaseAlgorithmExtractor(ABC):
         """验证和标准化参数"""
         pass
     
-    async def _get_candidate_tables_from_nl2sql(self, question: str, window_id: str = "default") -> tuple[str, Dict[str, Any]]:
+    async def _get_candidate_tables_from_nl2sql(self, question: str, window_id: str = "default", user_id: int = None) -> tuple[str, Dict[str, Any]]:
         """
         从NL2SQL服务获取候选表信息和关键词
         
@@ -73,7 +73,7 @@ class BaseAlgorithmExtractor(ABC):
             return "（无可用数据库模式信息）", {}
         
         try:
-            query_db_result = await self.nl2sql_client.query_db(question, window_id)
+            query_db_result = await self.nl2sql_client.query_db(question, window_id, user_id)
             
             candidate_tables = query_db_result.get('candidateTables', [])
             if not candidate_tables:

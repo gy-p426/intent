@@ -65,7 +65,7 @@ class NL2SQLClient(INL2SQLClient):
             discovered_url = await self.service_discovery.discover_service(
                 self.settings.nl2sql_service_name
             )
-            
+
             if discovered_url:
                 logger.debug(f"通过服务发现获取NL2SQL服务URL: {discovered_url}")
                 return discovered_url
@@ -85,13 +85,14 @@ class NL2SQLClient(INL2SQLClient):
             self.session = aiohttp.ClientSession(timeout=timeout)
         return self.session
     
-    async def query_db(self, question: str, window_id: str = "default") -> Dict[str, Any]:
+    async def query_db(self, question: str, window_id: str = "default", user_id: int = None) -> Dict[str, Any]:
         """
         调用NL2SQL服务的/query-db接口获取候选表信息和关键词
         
         Args:
             question: 用户自然语言查询
             window_id: 窗口ID
+            user_id:用户ID
             
         Returns:
             Dict[str, Any]: 包含候选表和关键词的完整信息
@@ -111,7 +112,8 @@ class NL2SQLClient(INL2SQLClient):
             # 准备请求数据
             request_data = {
                 "question": question,
-                "windowId": window_id
+                "windowId": window_id,
+                "userId": user_id
             }
             
             # 获取服务URL并发送HTTP请求
@@ -279,7 +281,7 @@ class NL2SQLClient(INL2SQLClient):
             
             # 第一阶段：获取候选表和关键词
             logger.debug("执行第一阶段：获取候选表和关键词")
-            query_db_result = await self.query_db(request.question, request.window_id)
+            query_db_result = await self.query_db(request.question, request.window_id, request.user_id)
             
             # 第二阶段：生成和执行SQL
             logger.debug("执行第二阶段：生成和执行SQL")

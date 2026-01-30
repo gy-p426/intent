@@ -90,6 +90,7 @@ class AlgorithmRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=1000, description="用户自然语言查询")
     window_id: str = Field(default="default", description="窗口ID")
     session_id: str = Field(..., description="会话ID")
+    user_id: int = Field(..., description="用户ID")
     # None/True: 走现有自动分析；False: 手动选择数据库信息（新增交互步骤2.1）
     auto_analysis: Optional[bool] = Field(default=None, description="是否自动分析；None/true=自动；false=手动选择数据库信息")
     stream: bool = Field(default=True, description="是否流式返回")
@@ -111,6 +112,7 @@ class NL2SQLRequest(BaseModel):
     question: str = Field(..., description="查询问题")
     window_id: str = Field(..., description="窗口ID")
     session_id: str = Field(..., description="会话ID")
+    user_id: int = Field(..., description="用户ID")
 
 
 class NL2SQLResponse(BaseModel):
