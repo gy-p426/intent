@@ -36,7 +36,15 @@ class IntentRecognitionService:
         Args:
             rag_module: RAG模块实例
             llm_module: LLM模块实例
+            
+        Raises:
+            ValueError: 如果RAG或LLM模块为None
         """
+        if not rag_module:
+            raise ValueError("RAG模块不能为None，意图识别服务需要RAG模块")
+        if not llm_module:
+            raise ValueError("LLM模块不能为None，意图识别服务需要LLM模块")
+        
         self.rag = rag_module
         self.llm = llm_module
         logger.info("IntentRecognitionService initialized")

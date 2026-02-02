@@ -48,6 +48,9 @@ class AlgorithmRouter(IAlgorithmRouter):
                 logger.warning("将使用传统RAG+关键词方法")
         else:
             logger.info("使用传统RAG+关键词算法识别方法")
+            # 验证intent_service是否提供
+            if not self.intent_service:
+                logger.warning("传统模式下未提供intent_service，算法识别可能失败")
         
     async def route_to_algorithm(self, question: str) -> AlgorithmType:
         """
@@ -67,12 +70,21 @@ class AlgorithmRouter(IAlgorithmRouter):
         try:
             # 优先使用纯LLM方法（如果启用）
             if self.settings.enable_pure_llm_algorithm_detection and self.pure_llm_selector:
-                algorithm_type = await self._match_by_pure_llm(question)
-                if algorithm_type:
-                    logger.info(f"通过纯LLM识别算法类型: {algorithm_type.value}")
-                    return algorithm_type
-                else:
-                    logger.warning("纯LLM识别失败，降级到传统方法")
+                try:
+                    algorithm_type = await self._match_by_pure_llm(question)
+                    if algorithm_type:
+                        logger.info(f"通过纯LLM识别算法类型: {algorithm_type.value}")
+                        return algorithm_type
+                    else:
+                        logger.warning("纯LLM识别失败")
+                except Exception as e:
+                    logger.error(f"纯LLM算法选择失败: {str(e)}")
+                    # 如果纯LLM失败且没有intent_service，返回AGENT作为保底
+                    if not self.intent_service:
+                        logger.warning("纯LLM失败且无intent_service，返回AGENT类型")
+                        return AlgorithmType.AGENT
+                    # 否则尝试降级到传统方法
+                    logger.info("降级到传统RAG+关键词方法")
             
             # 传统方法：RAG + 关键词 + LLM
             # 方法1: 使用意图识别服务（优先级最高）
@@ -81,6 +93,10 @@ class AlgorithmRouter(IAlgorithmRouter):
                 if algorithm_type:
                     logger.info(f"通过意图识别服务识别算法类型: {algorithm_type.value}")
                     return algorithm_type
+            else:
+                # 传统模式下intent_service未初始化
+                logger.error("传统模式下intent_service未初始化")
+                return AlgorithmType.AGENT
             
             # 方法2: 基于关键词匹配（备选方案）
             algorithm_type = await self._match_by_keywords(question)
@@ -94,12 +110,15 @@ class AlgorithmRouter(IAlgorithmRouter):
                 logger.info(f"通过LLM识别算法类型: {algorithm_type.value}")
                 return algorithm_type
             
-            # 无法识别算法类型
-            raise ValueError(f"无法识别查询的算法类型: {question}")
+            # 无法识别算法类型，返回AGENT作为保底
+            logger.warning(f"无法识别查询的算法类型，返回AGENT作为保底: {question}")
+            return AlgorithmType.AGENT
             
         except Exception as e:
             logger.error(f"算法路由失败: {str(e)}")
-            raise
+            # 发生异常时返回AGENT作为保底
+            logger.warning("算法路由异常，返回AGENT类型作为保底")
+            return AlgorithmType.AGENT
     
     async def _match_by_pure_llm(self, question: str) -> Optional[AlgorithmType]:
         """

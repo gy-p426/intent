@@ -47,19 +47,7 @@ async def lifespan(app):
     try:
         logger.info(f"服务配置加载完成: {settings.service_name}:{settings.service_port}")
         
-        # 初始化RAG模块
-        logger.info("初始化RAG模块...")
-        kb_loader = KnowledgeBaseLoader(settings.knowledge_base_path)
-        embedding_service = EmbeddingService(settings.embedding_model)
-        vector_store = VectorStore(dimension=768)  # text2vec-base-chinese的向量维度
-        
-        rag_module = RAGModule(kb_loader, embedding_service, vector_store)
-        await rag_module.initialize()
-        
-        api_app.set_knowledge_base_status(True)
-        logger.info("RAG模块初始化完成")
-        
-        # 初始化LLM模块
+        # 初始化LLM模块（总是需要）
         logger.info("初始化LLM模块...")
         llm_client = LLMClient(
             api_key=settings.ark_api_key,
@@ -69,9 +57,31 @@ async def lifespan(app):
         llm_module = LLMModule(llm_client)
         logger.info("LLM模块初始化完成")
         
-        # 初始化意图识别服务
-        intent_service = IntentRecognitionService(rag_module, llm_module)
-        api_app.set_intent_service(intent_service)
+        # 根据配置决定是否初始化RAG模块
+        rag_module = None
+        intent_service = None
+        
+        if settings.enable_pure_llm_algorithm_detection:
+            # 纯LLM模式：不初始化RAG模块
+            logger.info("使用纯LLM算法识别模式，跳过RAG模块初始化")
+            api_app.set_knowledge_base_status(False)
+        else:
+            # 传统模式：初始化RAG模块
+            logger.info("使用传统RAG+关键词模式，初始化RAG模块...")
+            kb_loader = KnowledgeBaseLoader(settings.knowledge_base_path)
+            embedding_service = EmbeddingService(settings.embedding_model)
+            vector_store = VectorStore(dimension=768)  # text2vec-base-chinese的向量维度
+            
+            rag_module = RAGModule(kb_loader, embedding_service, vector_store)
+            await rag_module.initialize()
+            
+            api_app.set_knowledge_base_status(True)
+            logger.info("RAG模块初始化完成")
+            
+            # 初始化意图识别服务（仅在传统模式下需要）
+            intent_service = IntentRecognitionService(rag_module, llm_module)
+            api_app.set_intent_service(intent_service)
+            logger.info("意图识别服务初始化完成")
         
         # 初始化算法集成服务
         logger.info("初始化算法集成服务...")
