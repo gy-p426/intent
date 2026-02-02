@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     
     # LLM配置（火山引擎豆包）
     ark_api_key: str = Field(
-        default="",
+        default="7d7ec6e7-1f52-4deb-b881-7ea57442399f",
         description="火山引擎ARK API密钥"
     )
     ark_model: str = Field(
@@ -447,6 +447,12 @@ class Settings(BaseSettings):
     enable_agent_algorithm_analysis: bool = Field(
         default=True,
         description="是否启用Agent算法分析"
+    )
+    
+    # 文件存储配置
+    file_storage_base_path: str = Field(
+        default="",
+        description="文件存储基础路径（用于拼接相对路径）"
     )
 
     class Config:

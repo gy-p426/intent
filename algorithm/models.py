@@ -26,6 +26,9 @@ class AlgorithmType(str, Enum):
     PROFILE = "profile"
     CAUSALITY = "causality"
     NL2SQL = "nl2sql"
+    COMPARE_PROPORTION = "compare_proportion"
+    ALERT = "alert"
+    RECOMMEND = "recommend"
 
 
 class ResponseFormat(str, Enum):
@@ -95,6 +98,7 @@ class AlgorithmRequest(BaseModel):
     auto_analysis: Optional[bool] = Field(default=None, description="是否自动分析；None/true=自动；false=手动选择数据库信息")
     stream: bool = Field(default=True, description="是否流式返回")
     agent_algorithm: bool = Field(default=False, description="是否使用Agent算法分析")  # 新增
+    fileIds: Optional[Union[str, List[int]]] = Field(default=None, description="文件ID列表，可以是逗号分隔的字符串或整数数组")  # 新增
 
 
 class AlgorithmParameters(BaseModel):

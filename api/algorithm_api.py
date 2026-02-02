@@ -67,7 +67,18 @@ class AlgorithmIntegrationAPI:
                         detail="Service not available: Algorithm integration service not initialized"
                     )
                 
-                logger.info(f"收到算法执行请求: {request.question}, window_id={request.window_id},session_id={request.session_id},agent_algorithm={request.agent_algorithm},user_id={request.user_id}")
+                logger.info(f"收到算法执行请求: {request.question}, window_id={request.window_id},session_id={request.session_id},agent_algorithm={request.agent_algorithm},user_id={request.user_id},fileIds={request.fileIds}")
+                
+                # 处理 fileIds：如果是数组，转换为逗号分隔的字符串
+                fileids_str = None
+                if request.fileIds:
+                    if isinstance(request.fileIds, list):
+                        fileids_str = ','.join(str(fid) for fid in request.fileIds)
+                    else:
+                        fileids_str = str(request.fileIds)
+                    logger.info(f"fileIds 转换结果: {fileids_str}")
+                else:
+                    logger.info("fileIds 为空，未检测到文件上传")
                 
                 # 创建响应生成器
                 response_generator = self.algorithm_service.process_algorithm_request(
@@ -76,7 +87,8 @@ class AlgorithmIntegrationAPI:
                     session_id=request.session_id,
                     user_id=request.user_id,
                     auto_analysis=request.auto_analysis,
-                    agent_algorithm=request.agent_algorithm  # 传递agent_algorithm参数
+                    agent_algorithm=request.agent_algorithm,  # 传递agent_algorithm参数
+                    fileIds=fileids_str  # 传递fileIds参数
                 )
                 
                 # 根据请求选择响应格式

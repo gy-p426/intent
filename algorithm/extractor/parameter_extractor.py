@@ -130,7 +130,7 @@ class ParameterExtractor(IParameterExtractor):
             else:
                 logger.info("使用通用提取器")
                 return await self._extract_with_generic_extractor(
-                    question, algorithm_type, database_schema, window_id
+                    question, algorithm_type, database_schema, window_id, user_id
                 )
                 
         except Exception as e:
@@ -148,8 +148,15 @@ class ParameterExtractor(IParameterExtractor):
     ) -> AlgorithmParameters:
         """使用算法特定提取器提取参数"""
         try:
-            # 使用算法特定提取器
-            messages = await algorithm_extractor.build_extraction_prompt(question, database_schema, window_id, user_id)
+            # 从NL2SQL服务获取候选表信息（统一在这里调用）
+            schema_text, query_db_result = await self._get_candidate_tables_from_nl2sql(question, window_id, user_id)
+            logger.info(f"[参数提取] 获取候选表信息完成，candidateTables数量: {len(query_db_result.get('candidateTables', []))}")
+            
+            # 使用算法特定提取器，传入候选表信息
+            messages = await algorithm_extractor.build_extraction_prompt(
+                question, database_schema, window_id, user_id, schema_text, query_db_result
+            )
+            logger.info(f"使用算法特定提取器提取参数的LLM请求: {messages}")
             response = await self.llm_client.chat_completion(messages)
             logger.debug(f"LLM响应: {response}")
             extraction_result = algorithm_extractor.parse_extraction_response(response)
@@ -161,21 +168,13 @@ class ParameterExtractor(IParameterExtractor):
             normalized_query = extraction_result.get('normalized_query', 
                                                    f"执行{algorithm_type.value}分析")
             
-            # 获取query_db结果（如果extractor支持）
-            query_db_result = None
-            if hasattr(algorithm_extractor, 'get_last_query_db_result'):
-                query_db_result = algorithm_extractor.get_last_query_db_result()
-                logger.info(f"[参数提取调试] extractor 类型: {type(algorithm_extractor).__name__}")
-                logger.info(f"[参数提取调试] 从 extractor 获取的 query_db_result 是否为 None: {query_db_result is None}")
-                if query_db_result:
-                    candidate_tables = query_db_result.get('candidateTables', [])
-                    logger.info(f"[参数提取调试] candidateTables 数量: {len(candidate_tables)}")
-                    if candidate_tables:
-                        logger.info(f"[参数提取调试] candidateTables 第一项: {candidate_tables[0][:200] if len(candidate_tables[0]) > 200 else candidate_tables[0]}")
-                else:
-                    logger.warning(f"[参数提取调试] get_last_query_db_result() 返回了 None 或空字典")
-            else:
-                logger.warning(f"[参数提取调试] extractor 类型 {type(algorithm_extractor).__name__} 没有 get_last_query_db_result 方法")
+            # 使用统一获取的query_db_result
+            logger.info(f"[参数提取调试] 使用统一获取的 query_db_result，是否为 None: {query_db_result is None}")
+            if query_db_result:
+                candidate_tables = query_db_result.get('candidateTables', [])
+                logger.info(f"[参数提取调试] candidateTables 数量: {len(candidate_tables)}")
+                if candidate_tables:
+                    logger.info(f"[参数提取调试] candidateTables 第一项: {candidate_tables[0][:200] if len(candidate_tables[0]) > 200 else candidate_tables[0]}")
             
             return AlgorithmParameters(
                 algorithm_type=algorithm_type,
@@ -191,7 +190,7 @@ class ParameterExtractor(IParameterExtractor):
             # 回退到通用提取器
             logger.info("回退到通用提取器")
             return await self._extract_with_generic_extractor(
-                question, algorithm_type, database_schema, window_id
+                question, algorithm_type, database_schema, window_id, user_id
             )
     
     async def _extract_with_generic_extractor(
@@ -199,7 +198,8 @@ class ParameterExtractor(IParameterExtractor):
         question: str,
         algorithm_type: AlgorithmType,
         database_schema: List[DatabaseColumn],
-        window_id: str = "default"
+        window_id: str = "default",
+        user_id: int = None
     ) -> AlgorithmParameters:
         """使用通用提取器提取参数"""
         # 获取算法配置
@@ -207,7 +207,7 @@ class ParameterExtractor(IParameterExtractor):
         
         # 构建参数提取提示词
         messages = await self._build_extraction_prompt(
-            question, algorithm_config, database_schema, window_id
+            question, algorithm_config, database_schema, window_id, user_id
         )
         
         # 调用LLM进行参数提取
@@ -257,7 +257,8 @@ class ParameterExtractor(IParameterExtractor):
         question: str, 
         algorithm_config: AlgorithmConfig,
         database_schema: List[DatabaseColumn],
-        window_id: str = "default"
+        window_id: str = "default",
+        user_id: int = None
     ) -> List[Dict[str, str]]:
         """
         构建参数提取的LLM提示模板
@@ -267,12 +268,13 @@ class ParameterExtractor(IParameterExtractor):
             algorithm_config: 算法配置
             database_schema: 数据库模式信息
             window_id: 窗口ID
+            user_id: 用户ID
             
         Returns:
             List[Dict[str, str]]: LLM消息列表
         """
         # 从NL2SQL服务获取候选表信息和关键词
-        schema_text, query_db_result = await self._get_candidate_tables_from_nl2sql(question, window_id)
+        schema_text, query_db_result = await self._get_candidate_tables_from_nl2sql(question, window_id, user_id)
         
         # 调试日志
         logger.info(f"[通用 Extractor调试] _get_candidate_tables_from_nl2sql 返回的 query_db_result 是否为 None: {query_db_result is None}")

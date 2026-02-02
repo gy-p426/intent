@@ -44,7 +44,7 @@ class StructuredFormatter(logging.Formatter):
             
             # 添加额外的上下文信息
             if hasattr(record, 'context'):
-                log_entry["context"] = record.context
+                log_entry["context"] = self._serialize_context(record.context)
             
             if hasattr(record, 'trace_id'):
                 log_entry["trace_id"] = record.trace_id
@@ -52,7 +52,30 @@ class StructuredFormatter(logging.Formatter):
             if hasattr(record, 'user_id'):
                 log_entry["user_id"] = record.user_id
             
-            return json.dumps(log_entry, ensure_ascii=False, separators=(',', ':'))
+            return json.dumps(log_entry, ensure_ascii=False, separators=(',', ':'), default=self._json_serializer)
+    
+    def _json_serializer(self, obj):
+        """自定义JSON序列化器，处理datetime等特殊类型"""
+        if isinstance(obj, datetime):
+            return obj.isoformat() + "Z"
+        # 对于其他不可序列化的对象，返回其字符串表示
+        return str(obj)
+    
+    def _serialize_context(self, context):
+        """序列化上下文信息，处理datetime等特殊类型"""
+        if isinstance(context, dict):
+            return {k: self._serialize_value(v) for k, v in context.items()}
+        return context
+    
+    def _serialize_value(self, value):
+        """序列化单个值"""
+        if isinstance(value, datetime):
+            return value.isoformat() + "Z"
+        elif isinstance(value, dict):
+            return {k: self._serialize_value(v) for k, v in value.items()}
+        elif isinstance(value, (list, tuple)):
+            return [self._serialize_value(v) for v in value]
+        return value
 
 
 class LoggingConfig:

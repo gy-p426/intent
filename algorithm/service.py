@@ -44,12 +44,13 @@ ALGORITHM_TYPE_CHINESE_MAP = {
     AlgorithmType.PREDICT: "预测",
     AlgorithmType.ANOMALY: "异常检测",
     AlgorithmType.ASSOCIATE: "关联分析",
-    AlgorithmType.COMPARE: "对比分析",
+    # AlgorithmType.COMPARE: "对比分析",
     AlgorithmType.SIMILARITY: "相似度分析",
     AlgorithmType.TREND: "趋势分析",
     AlgorithmType.PROFILE: "画像分析",
     AlgorithmType.CAUSALITY: "因果分析",
-    AlgorithmType.NL2SQL: "智能检索"
+    AlgorithmType.NL2SQL: "智能检索",
+    AlgorithmType.COMPARE_PROPORTION: "对比分析"
 }
 
 
@@ -140,7 +141,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         session_id: str,
         user_id: Optional[int] = None,
         auto_analysis: Optional[bool] = None,
-        agent_algorithm: bool = False  # 新增参数
+        agent_algorithm: bool = False,  # 新增参数
+        fileIds: Optional[str] = None  # 新增参数
     ) -> AlgorithmResponseGenerator:
         """
         处理算法请求的主要方法
@@ -152,6 +154,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             user_id: 用户ID（可选）
             auto_analysis: 是否自动分析
             agent_algorithm: 是否使用Agent算法分析（新增）
+            fileids: 文件ID列表，用逗号分隔（新增）
             
         Yields:
             AlgorithmResponse: 流式响应数据
@@ -171,7 +174,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             'trace_id': trace_id,
             'start_time': datetime.utcnow(),
             'auto_analysis': auto_analysis,
-            'agent_algorithm': agent_algorithm  # 新增
+            'agent_algorithm': agent_algorithm,  # 新增
+            'fileIds': fileIds  # 新增
         }
         
         try:
@@ -186,8 +190,21 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 question, window_id, session_id, trace_id, user_id
             )
             
-            logger.info(f"开始处理算法请求: {question[:100]}..., agent_algorithm={agent_algorithm}", extra={'trace_id': trace_id})
+            logger.info(f"开始处理算法请求: {question[:100]}..., agent_algorithm={agent_algorithm}, fileIds={fileIds}", extra={'trace_id': trace_id})
 
+
+            # === 步骤-1: 处理文件上传（如果有fileIds） ===
+            if fileIds:
+                logger.info(f"检测到文件上传请求，fileIds={fileIds}", extra={'trace_id': trace_id})
+                
+                # 直接调用Agent分析流程处理文件
+                async for response in self._process_file_upload_to_agent(
+                    question, fileIds, window_id, session_id, request_context
+                ):
+                    yield response
+                
+                # 文件处理完成后直接返回，不继续后续流程
+                return
 
             # 步骤0: 判断是否是追问
             from algorithm.models import AlgorithmResponse, StreamingStep
@@ -205,7 +222,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 continuous_result = await self.nl2sql_client.check_continuous_question(
                     question=question,
                     window_id=window_id,
-                    session_id=session_id
+                    session_id=session_id,
+                    user_id=user_id
                 )
 
                 is_continuous = continuous_result.get('isContinuous', False)
@@ -215,10 +233,10 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
 
                 # 构建返回消息
                 if is_continuous:
-                    message = f"用户追问上一个问题：{previous_question}，故新的问题为：{merged_question}"
+                    message = f"用户追问之前的问题：{previous_question}，用户在追问，故新的问题为：{merged_question}"
                 else:
                     prev_text = previous_question if previous_question else "无"
-                    message = f"用户上一个问题为：{prev_text}，本次问题为：{question}，不是对上一个问题的追问"
+                    message = f"用户之前的问题为：{prev_text}，不是对上一个问题的追问"
 
                 logger.info(f"追问判断完成: is_continuous={is_continuous}, merged_question={merged_question}", extra={'trace_id': trace_id})
 
@@ -243,6 +261,9 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             except Exception as e:
                 logger.warning(f"追问判断失败，使用原始问题继续处理: {str(e)}", extra={'trace_id': trace_id})
                 # 追问判断失败不影响主流程，使用原始问题继续
+                # 定义merged_question变量，避免后续使用时出现UnboundLocalError
+                merged_question = question
+                
                 yield AlgorithmResponse(
                     step=StreamingStep.INTENT_ANALYSIS,
                     status="completed",
@@ -251,6 +272,59 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                         "merged_question": question,
                         "message": f"用户上一个问题为：无，本次问题为：{question}，不是对上一个问题的追问，故用户的问题为：{question}",
                         "previous_question": ""
+                    },
+                    timestamp=datetime.utcnow()
+                )
+
+            # 调用Session保存问题接口，保存问题到历史记录
+            try:
+                logger.info(f"保存问题到Session历史记录: {merged_question[:50]}...", extra={'trace_id': trace_id})
+                save_result = await self.nl2sql_client.save_question(
+                    question=merged_question,
+                    window_id=window_id,
+                    user_id=user_id
+                )
+
+                if save_result.get('success', False):
+                    saved_session_id = save_result.get('data', {}).get('sessionId', session_id)
+                    logger.info(f"问题保存成功，sessionId: {saved_session_id}", extra={'trace_id': trace_id})
+
+                    # 流式返回保存成功的消息
+                    yield AlgorithmResponse(
+                        step=StreamingStep.INTENT_ANALYSIS,
+                        status="completed",
+                        data={
+                            "message": "问题已保存",
+                            "session_id": saved_session_id,
+                            "saved": True
+                        },
+                        timestamp=datetime.utcnow()
+                    )
+
+
+                else:
+                    logger.warning(f"问题保存失败: {save_result.get('message', '未知错误')}", extra={'trace_id': trace_id})
+                    # 保存失败不影响主流程，继续处理
+                    yield AlgorithmResponse(
+                        step=StreamingStep.INTENT_ANALYSIS,
+                        status="completed",
+                        data={
+                            "message": "问题保存失败，但不影响分析",
+                            "saved": False,
+                            "error": save_result.get('message', '未知错误')
+                        },
+                        timestamp=datetime.utcnow()
+                    )
+            except Exception as e:
+                logger.warning(f"保存问题到Session失败: {str(e)}", extra={'trace_id': trace_id})
+                # 保存失败不影响主流程，继续处理
+                yield AlgorithmResponse(
+                    step=StreamingStep.INTENT_ANALYSIS,
+                    status="completed",
+                    data={
+                        "message": "问题保存失败，但不影响分析",
+                        "saved": False,
+                        "error": str(e)
                     },
                     timestamp=datetime.utcnow()
                 )
@@ -590,6 +664,262 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 original_error=e
             )
 
+    async def _process_file_upload_to_agent(
+        self,
+        question: str,
+        fileIds: str,
+        window_id: str,
+        session_id: str,
+        request_context: Dict[str, Any]
+    ) -> AlgorithmResponseGenerator:
+        """
+        处理文件上传到Agent的流程
+        
+        Args:
+            question: 用户问题
+            fileIds: 文件ID列表，用逗号分隔
+            window_id: 窗口ID
+            session_id: 会话ID
+            request_context: 请求上下文
+            
+        Yields:
+            AlgorithmResponse: 流式响应数据
+        """
+        from algorithm.models import AlgorithmResponse, StreamingStep
+        import httpx
+        
+        trace_id = request_context.get('trace_id', 'unknown')
+        
+        try:
+            # 步骤1: 获取文件详情
+            logger.info(f"开始获取文件详情，fileIds={fileIds}", extra={'trace_id': trace_id})
+            yield AlgorithmResponse(
+                step=StreamingStep.AGENT_ALGORITHM_ANALYSIS,
+                status="processing",
+                data={"message": f"正在获取文件信息..."},
+                timestamp=datetime.utcnow()
+            )
+            
+            # 调用NL2SQL服务获取文件详情
+            nl2sql_base_url = self.settings.nl2sql_base_url or "http://localhost:8080"
+            file_detail_url = f"{nl2sql_base_url}/api/file/manage/detail/{fileIds}"
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(file_detail_url)
+                response.raise_for_status()
+                file_response = response.json()
+            
+            if not file_response.get('success'):
+                error_msg = file_response.get('error', '获取文件详情失败')
+                logger.error(f"获取文件详情失败: {error_msg}", extra={'trace_id': trace_id})
+                yield AlgorithmResponse(
+                    step=StreamingStep.ERROR,
+                    status="error",
+                    data={"error": error_msg},
+                    timestamp=datetime.utcnow()
+                )
+                return
+            
+            # 获取文件数据
+            file_data = file_response.get('data')
+            if not file_data:
+                logger.error("未找到文件信息", extra={'trace_id': trace_id})
+                yield AlgorithmResponse(
+                    step=StreamingStep.ERROR,
+                    status="error",
+                    data={"error": "未找到文件信息"},
+                    timestamp=datetime.utcnow()
+                )
+                return
+            
+            # 打印完整的响应数据用于调试
+            import json
+            logger.info(f"文件详情响应: {json.dumps(file_response, ensure_ascii=False)[:500]}", extra={'trace_id': trace_id})
+            
+            # 处理两种情况：单个文件（字典）或多个文件（数组）
+            if isinstance(file_data, dict):
+                # 单个文件，转换为数组
+                file_data_list = [file_data]
+                logger.info(f"单个文件模式，文件: {file_data.get('fileName')}", extra={'trace_id': trace_id})
+            elif isinstance(file_data, list):
+                # 多个文件
+                file_data_list = file_data
+                logger.info(f"多个文件模式，共 {len(file_data_list)} 个文件", extra={'trace_id': trace_id})
+            else:
+                logger.error(f"文件数据格式错误: {type(file_data)}", extra={'trace_id': trace_id})
+                yield AlgorithmResponse(
+                    step=StreamingStep.ERROR,
+                    status="error",
+                    data={"error": f"文件数据格式错误: {type(file_data)}"},
+                    timestamp=datetime.utcnow()
+                )
+                return
+            
+            # 步骤2: 准备文件并调用Agent服务
+            yield AlgorithmResponse(
+                step=StreamingStep.AGENT_ALGORITHM_ANALYSIS,
+                status="processing",
+                data={"message": f"正在准备文件并调用Agent分析服务..."},
+                timestamp=datetime.utcnow()
+            )
+            
+            # 构建multipart/form-data
+            files = []
+            for idx, file_info in enumerate(file_data_list):
+                # 检查 file_info 的类型
+                logger.info(f"处理文件 #{idx}, 类型: {type(file_info)}, 内容: {file_info}", extra={'trace_id': trace_id})
+                
+                if isinstance(file_info, str):
+                    # 如果是字符串，可能是文件路径
+                    logger.warning(f"文件信息 #{idx} 是字符串: {file_info}，尝试作为文件路径处理", extra={'trace_id': trace_id})
+                    file_path = file_info
+                    file_name = file_info.split('/')[-1] if '/' in file_info else file_info.split('\\')[-1]
+                elif isinstance(file_info, dict):
+                    # 如果是字典，按照预期处理
+                    file_path = file_info.get('filePath')
+                    file_name = file_info.get('fileName')
+                else:
+                    logger.warning(f"文件信息 #{idx} 类型错误: {type(file_info)}", extra={'trace_id': trace_id})
+                    continue
+                
+                if not file_path:
+                    logger.warning(f"文件 {file_name} 缺少路径信息", extra={'trace_id': trace_id})
+                    continue
+                
+                # 检查路径是否为绝对路径，如果不是，需要拼接基础路径
+                import os
+                if not os.path.isabs(file_path):
+                    # 相对路径，需要拼接基础路径
+                    # 从配置中获取文件存储基础路径，默认为当前目录
+                    file_base_path = getattr(self.settings, 'file_storage_base_path', '.')
+                    full_path = os.path.join(file_base_path, file_path)
+                    logger.info(f"相对路径转换: {file_path} -> {full_path}", extra={'trace_id': trace_id})
+                    file_path = full_path
+                
+                # 读取文件内容
+                try:
+                    with open(file_path, 'rb') as f:
+                        file_content = f.read()
+                    
+                    files.append(('file', (file_name, file_content, 'application/octet-stream')))
+                    logger.info(f"成功读取文件: {file_name}, 路径: {file_path}, 大小: {len(file_content)} bytes", extra={'trace_id': trace_id})
+                except FileNotFoundError:
+                    logger.error(f"文件不存在: {file_name}, 路径: {file_path}", extra={'trace_id': trace_id})
+                    # 继续处理其他文件
+                    continue
+                except Exception as e:
+                    logger.error(f"读取文件失败: {file_name}, 路径: {file_path}, 错误: {str(e)}", extra={'trace_id': trace_id})
+                    # 继续处理其他文件
+                    continue
+            
+            if not files:
+                logger.error("没有可用的文件", extra={'trace_id': trace_id})
+                yield AlgorithmResponse(
+                    step=StreamingStep.ERROR,
+                    status="error",
+                    data={"error": "没有可用的文件"},
+                    timestamp=datetime.utcnow()
+                )
+                return
+            
+            # 构建request_data
+            request_data = {"query": question}
+            
+            # 调用Agent服务的 /query_agents_stream 接口
+            # 使用配置文件中的 AGENT_ALGORITHM_ANALYSIS_URL
+            agent_base_url = self.settings.agent_algorithm_analysis_url
+            agent_url = f"{agent_base_url}/query_agents_stream"
+            
+            logger.info(f"调用Agent服务: {agent_url}", extra={'trace_id': trace_id})
+            
+            import json
+            data = {'request_data': json.dumps(request_data)}
+            
+            # 发起流式请求
+            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, read=None)) as client:
+                async with client.stream("POST", agent_url, files=files, data=data) as response:
+                    response.raise_for_status()
+                    
+                    # 验证响应类型
+                    content_type = response.headers.get("content-type", "")
+                    if "text/event-stream" not in content_type:
+                        logger.error(f"Agent服务返回的不是SSE格式: {content_type}", extra={'trace_id': trace_id})
+                        yield AlgorithmResponse(
+                            step=StreamingStep.ERROR,
+                            status="error",
+                            data={"error": f"Agent服务返回格式错误: {content_type}"},
+                            timestamp=datetime.utcnow()
+                        )
+                        return
+                    
+                    logger.info("开始接收Agent的SSE事件流", extra={'trace_id': trace_id})
+                    
+                    # 解析并转发SSE流
+                    buffer = ""
+                    async for chunk in response.aiter_text():
+                        buffer += chunk
+                        
+                        # 按行分割
+                        while "\n" in buffer:
+                            line, buffer = buffer.split("\n", 1)
+                            line = line.strip()
+                            
+                            if not line:
+                                continue
+                            
+                            # 解析SSE格式: data: {...}
+                            if line.startswith("data: "):
+                                data_str = line[6:]  # 移除 "data: " 前缀
+                                
+                                # 跳过结束标记
+                                if data_str == "[DONE]":
+                                    logger.info("收到Agent流结束标记 [DONE]", extra={'trace_id': trace_id})
+                                    break
+                                
+                                try:
+                                    # 解析JSON
+                                    event = json.loads(data_str)
+                                    event_type = event.get("type", "unknown")
+                                    
+                                    logger.debug(f"收到Agent事件: type={event_type}", extra={'trace_id': trace_id})
+                                    
+                                    # 直接转发Agent的原始事件数据
+                                    yield AlgorithmResponse(
+                                        step=StreamingStep.AGENT_ALGORITHM_ANALYSIS,
+                                        status="processing",
+                                        data={"agent_event": event},  # 直接转发原始事件
+                                        timestamp=datetime.utcnow()
+                                    )
+                                    
+                                except json.JSONDecodeError as e:
+                                    logger.warning(f"解析Agent SSE数据失败: {data_str[:100]}..., 错误: {e}", extra={'trace_id': trace_id})
+            
+            # 完成
+            logger.info("Agent文件分析流程完成", extra={'trace_id': trace_id})
+            yield AlgorithmResponse(
+                step=StreamingStep.COMPLETED,
+                status="completed",
+                data={"message": "Agent文件分析完成"},
+                timestamp=datetime.utcnow()
+            )
+            
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP请求失败: {e.response.status_code}", extra={'trace_id': trace_id})
+            yield AlgorithmResponse(
+                step=StreamingStep.ERROR,
+                status="error",
+                data={"error": f"HTTP请求失败: {e.response.status_code}"},
+                timestamp=datetime.utcnow()
+            )
+        except Exception as e:
+            logger.error(f"文件上传到Agent失败: {str(e)}", extra={'trace_id': trace_id}, exc_info=True)
+            yield AlgorithmResponse(
+                step=StreamingStep.ERROR,
+                status="error",
+                data={"error": f"文件上传到Agent失败: {str(e)}"},
+                timestamp=datetime.utcnow()
+            )
+
     async def _process_with_error_handling(
         self,
         question: str,
@@ -683,17 +1013,14 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                         )
 
                         # 检查是否完成
-                        if nl2sql_event.get('step') == 'completed':
+                        if nl2sql_event.get('step') == 'sql_execution' and nl2sql_event.get('status') == 'completed':
                             logger.info("NL2SQL数据查询完成", extra={'trace_id': trace_id})
-                            # yield AlgorithmResponse(
-                            #     step=StreamingStep.COMPLETED,
-                            #     status="completed",
-                            #     data={
-                            #         "message": "数据查询完成",
-                            #         "nl2sql_result": nl2sql_event
-                            #     },
-                            #     timestamp=datetime.utcnow()
-                            # )
+                            yield AlgorithmResponse(
+                                step=StreamingStep.COMPLETED,
+                                status="completed",
+                                data= nl2sql_event,
+                                timestamp=datetime.utcnow()
+                            )
                             return
 
                         # 检查错误
@@ -721,7 +1048,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             )
             
             try:
-                parameters = await self._extract_parameters_with_retry(question, algorithm_type, window_id)
+                parameters = await self._extract_parameters_with_retry(question, algorithm_type, window_id, user_id)
                 execution_time_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
                 
                 # 记录结构化日志
@@ -836,7 +1163,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 yield AlgorithmResponse(
                     step=StreamingStep.SQL_GENERATION,
                     status="processing",
-                    data={"message": "正在生成SQL查询..."},
+                    data={"message": "正在生成查询语句..."},
                     timestamp=datetime.utcnow()
                 )
                 
@@ -868,7 +1195,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                         data={
                             "sql_statement": nl2sql_response.sql_statement,
                             "execution_time_ms": nl2sql_response.execution_time_ms,
-                            "message": "SQL生成完成"
+                            # "sqlExplanation": nl2sql_response.sqlExplanation,
+                            "message": "查询语句生成完成"
                         },
                         timestamp=datetime.utcnow()
                     )
@@ -1261,7 +1589,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         yield AlgorithmResponse(
             step=StreamingStep.SQL_GENERATION,
             status="processing",
-            data={"message": "正在生成SQL查询..."},
+            data={"message": "正在生成查询语句..."},
             timestamp=datetime.utcnow(),
         )
 
@@ -1288,7 +1616,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                 data={
                     "sql_statement": nl2sql_response.sql_statement,
                     "execution_time_ms": nl2sql_response.execution_time_ms,
-                    "message": "SQL生成完成"
+                    "message": "查询语句生成完成"
                 },
                 timestamp=datetime.utcnow(),
             )
@@ -1442,7 +1770,8 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         self, 
         question: str, 
         algorithm_type: AlgorithmType,
-        window_id: str = "default"
+        user_id: int,
+        window_id: str = "default",
     ) -> AlgorithmParameters:
         """
         提取算法参数
@@ -1450,6 +1779,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         Args:
             question: 用户查询
             algorithm_type: 算法类型
+            user_id: 用户ID
             window_id: 窗口ID
             
         Returns:
@@ -1470,7 +1800,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             database_schema = []
         
         return await self.parameter_extractor.extract_parameters(
-            question, algorithm_type, database_schema, window_id
+            question, algorithm_type, database_schema, window_id, user_id
         )
     
     def _validate_request_parameters(self, question: str, window_id: str, session_id: str):
@@ -1520,6 +1850,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         self, 
         question: str, 
         algorithm_type: AlgorithmType,
+        user_id: int,
         window_id: str = "default"
     ) -> AlgorithmParameters:
         """带重试的参数提取"""
@@ -1527,6 +1858,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             self.extract_parameters,
             question,
             algorithm_type,
+            user_id,
             window_id,
             config=self.retry_configs['parameter_extraction'],
             retryable_exceptions=(ConnectionError, TimeoutError, asyncio.TimeoutError),
@@ -1941,13 +2273,13 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         try:
             # 检查算法执行结果是否有效
             algorithm_status = algorithm_result.get('status', 'unknown')
-            if algorithm_status != 'success':
-                logger.warning(f"算法执行状态为 {algorithm_status}，跳过大模型分析")
-                error_message = algorithm_result.get('error', '算法执行失败')
-                return {
-                    "llm_analysis": f"算法执行失败：{error_message}",
-                    "analysis_source": "error"
-                }
+            # if algorithm_status != 'success':
+            #     logger.warning(f"算法执行状态为 {algorithm_status}，跳过大模型分析")
+            #     error_message = algorithm_result.get('error', '算法执行失败')
+            #     return {
+            #         "llm_analysis": f"算法执行失败：{error_message}",
+            #         "analysis_source": "error"
+            #     }
             
             # 检查结果是否为空
             if not algorithm_result or len(algorithm_result) <= 1:

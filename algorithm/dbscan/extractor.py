@@ -26,15 +26,17 @@ class DBSCANExtractor(BaseAlgorithmExtractor):
             question: str,
             database_schema: Optional[List[DatabaseColumn]] = None,
             window_id: str = "default",
-            user_id: int = None
+            user_id: Optional[int] = None,
+            schema_text: str = "",
+            query_db_result: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, str]]:
         """构建DBSCAN特定的参数提取提示词"""
 
-        # 从NL2SQL服务获取候选表信息和关键词
-        schema_text, query_db_result = await self._get_candidate_tables_from_nl2sql(question, window_id, user_id)
-
-        # 保存查询结果供后续使用
-        self._last_query_db_result = query_db_result
+        # 使用传入的候选表信息（由parameter_extractor统一获取）
+        if not schema_text:
+            schema_text = "（无可用数据库模式信息）"
+        if query_db_result is None:
+            query_db_result = {}
 
         system_prompt = f"""你是DBSCAN密度聚类分析专家。根据用户问题和数据库信息，提取聚类分析所需的参数。
 

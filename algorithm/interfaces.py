@@ -44,7 +44,8 @@ class IParameterExtractor(ABC):
         question: str, 
         algorithm_type: AlgorithmType,
         database_schema: List[DatabaseColumn],
-        window_id: str = "default"
+        window_id: str = "default",
+        user_id: int = None
     ) -> AlgorithmParameters:
         """
         从用户查询中提取算法参数

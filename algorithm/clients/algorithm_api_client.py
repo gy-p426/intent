@@ -632,6 +632,7 @@ class AlgorithmAPIClient:
         # 根据分析类型选择端点（目前只使用 decomposition）
         if analysis_type == 'decomposition':
             endpoint = "/api/v1/trend/decomposition"
+            # endpoint = "api/trend_forecast/api/v1/trend/decomposition"
         elif analysis_type == 'detection':
             endpoint = "/api/v1/trend/detection"
         else:
@@ -712,7 +713,7 @@ class AlgorithmAPIClient:
             }
         }
         return await self.call_algorithm_api("trend", "/api/v1/forecast/univariate", "POST", payload)
-    
+
     async def call_multivariate_forecast_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
         """
         调用多变量预测API

@@ -29,15 +29,18 @@ class CausalityExtractor(BaseAlgorithmExtractor):
             self,
             question: str,
             database_schema: Optional[List[DatabaseColumn]] = None,
-            window_id: str = "default"
+            window_id: str = "default",
+            user_id: Optional[int] = None,
+            schema_text: str = "",
+            query_db_result: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, str]]:
         """构建因果分析特定的参数提取提示词"""
 
-        # 从NL2SQL服务获取候选表信息和关键词
-        schema_text, query_db_result = await self._get_candidate_tables_from_nl2sql(question, window_id)
-
-        # 保存查询结果供后续使用
-        self._last_query_db_result = query_db_result
+        # 使用传入的候选表信息（由parameter_extractor统一获取）
+        if not schema_text:
+            schema_text = "（无可用数据库模式信息）"
+        if query_db_result is None:
+            query_db_result = {}
 
         system_prompt = f"""你是因果分析专家。根据用户问题和数据库信息,提取因果分析所需的参数。
 
@@ -104,6 +107,7 @@ class CausalityExtractor(BaseAlgorithmExtractor):
    - 要全面分析“数据库可用列信息”中所有可能相关的数值型字段
    - 但是不要创造“数据库可用列信息”中不存在的列
 3. 所有列注释必须与数据库中的实际列注释完全匹配
+4. 如果用户指定了某些列，请只使用这些列，不要使用其他列了
 
 输出JSON格式的参数提取结果。"""
 

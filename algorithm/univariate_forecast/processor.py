@@ -186,7 +186,7 @@ class UnivariateForecastProcessor(BaseAlgorithmProcessor):
             try:
                 response = await executor.execute_univariate_forecast(request)
                 
-                if response.status == "success":
+                if response:
                     logger.info(f"单变量预测执行成功，使用模型: {response.result.get('model_used')}")
                     return response.result
                 else:

@@ -754,7 +754,8 @@ class NL2SQLClient(INL2SQLClient):
         self,
         question: str,
         window_id: str,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        user_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         调用NL2SQL服务的/contin_question接口判断是否为追问
@@ -763,6 +764,7 @@ class NL2SQLClient(INL2SQLClient):
             question: 用户自然语言查询
             window_id: 窗口ID
             session_id: 会话ID（可选）
+            user_id: 用户ID（可选）
             
         Returns:
             Dict[str, Any]: 追问判断结果
@@ -795,6 +797,10 @@ class NL2SQLClient(INL2SQLClient):
             # 如果提供了sessionId，添加到请求中
             if session_id:
                 request_data["sessionId"] = session_id
+            
+            # 如果提供了userId，添加到请求中
+            if user_id is not None:
+                request_data["userId"] = user_id
             
             # 获取服务URL并发送HTTP请求
             base_url = await self._get_service_url()
@@ -951,4 +957,126 @@ class NL2SQLClient(INL2SQLClient):
                 "current_url": self.static_base_url,
                 "service_name": self.settings.nl2sql_service_name,
                 "discovery_mode": self.settings.service_discovery_mode
+            }
+    
+    async def save_question(
+        self,
+        question: str,
+        window_id: str,
+        user_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        调用NL2SQL服务的/session-cache/save-question接口保存问题到Session历史记录
+        
+        Args:
+            question: 用户自然语言查询
+            window_id: 窗口ID
+            user_id: 用户ID（可选）
+            
+        Returns:
+            Dict[str, Any]: 保存结果
+                {
+                    "success": bool,
+                    "message": str,
+                    "data": {
+                        "sessionId": str,
+                        "question": str,
+                        "windowId": str,
+                        "userId": int,
+                        "timestamp": int
+                    }
+                }
+            
+        Raises:
+            ConnectionError: 服务连接失败时抛出
+            ValueError: 请求参数无效时抛出
+        """
+        start_time = datetime.utcnow()
+        logger.info(f"调用NL2SQL /session-cache/save-question接口: {question[:50]}...")
+        
+        try:
+            # 验证请求参数
+            if not question or not question.strip():
+                raise ValueError("查询问题不能为空")
+            
+            if not window_id or not window_id.strip():
+                raise ValueError("窗口ID不能为空")
+            
+            # 准备请求数据
+            request_data = {
+                "question": question,
+                "windowId": window_id
+            }
+            
+            # 如果提供了userId，添加到请求中
+            if user_id is not None:
+                request_data["userId"] = user_id
+            
+            # 获取服务URL并发送HTTP请求
+            base_url = await self._get_service_url()
+            session = await self._get_session()
+            url = f"{base_url.rstrip('/')}/api/session-cache/save-question"
+            
+            logger.debug(f"发送请求到: {url}")
+            logger.debug(f"请求数据: {self._sanitize_log_data(request_data)}")
+            
+            async with session.post(url, json=request_data) as response:
+                if response.status == 200:
+                    try:
+                        result = await response.json()
+                        
+                        # 检查响应是否成功
+                        if not result.get('success', False):
+                            error_msg = result.get('message', '未知错误')
+                            logger.warning(f"NL2SQL /session-cache/save-question接口返回失败: {error_msg}")
+                            return {
+                                'success': False,
+                                'message': error_msg,
+                                'data': None
+                            }
+                        
+                        # 记录成功日志
+                        execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+                        session_id = result.get('data', {}).get('sessionId', '')
+                        logger.info(f"NL2SQL /session-cache/save-question接口调用成功，sessionId: {session_id}, 耗时: {execution_time:.2f}ms")
+                        
+                        return result
+                        
+                    except json.JSONDecodeError as e:
+                        logger.error(f"NL2SQL /session-cache/save-question接口返回无效JSON: {str(e)}")
+                        return {
+                            'success': False,
+                            'message': f'响应解析失败: {str(e)}',
+                            'data': None
+                        }
+                else:
+                    error_text = await response.text()
+                    logger.error(f"NL2SQL /session-cache/save-question接口返回错误: {response.status} - {error_text}")
+                    return {
+                        'success': False,
+                        'message': f'HTTP {response.status}: {error_text}',
+                        'data': None
+                    }
+                    
+        except aiohttp.ClientError as e:
+            logger.error(f"NL2SQL /session-cache/save-question接口连接失败: {str(e)}")
+            return {
+                'success': False,
+                'message': f'连接失败: {str(e)}',
+                'data': None
+            }
+        except asyncio.TimeoutError:
+            logger.error("NL2SQL /session-cache/save-question接口请求超时")
+            return {
+                'success': False,
+                'message': '请求超时',
+                'data': None
+            }
+        except Exception as e:
+            execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+            logger.error(f"NL2SQL /session-cache/save-question接口调用失败，耗时: {execution_time:.2f}ms，错误: {str(e)}")
+            return {
+                'success': False,
+                'message': f'调用失败: {str(e)}',
+                'data': None
             }

@@ -26,13 +26,18 @@ class ClassificationExtractor(BaseAlgorithmExtractor):
             self,
             question: str,
             database_schema: Optional[List[DatabaseColumn]] = None,
-            window_id: str = "default"
+            window_id: str = "default",
+            user_id: Optional[int] = None,
+            schema_text: str = "",
+            query_db_result: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, str]]:
         """构建分类算法特定的参数提取提示词"""
 
-        # 获取候选表信息（利用基类方法）
-        schema_text, query_db_result = await self._get_candidate_tables_from_nl2sql(question, window_id)
-        self._last_query_db_result = query_db_result
+        # 使用传入的候选表信息（由parameter_extractor统一获取）
+        if not schema_text:
+            schema_text = "（无可用数据库模式信息）"
+        if query_db_result is None:
+            query_db_result = {}
 
         system_prompt = f"""你是分类分析算法专家。请根据用户问题和数据库信息，提取分类预测所需的参数。
 

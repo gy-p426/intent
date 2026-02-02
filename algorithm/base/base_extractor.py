@@ -42,9 +42,22 @@ class BaseAlgorithmExtractor(ABC):
         self, 
         question: str, 
         database_schema: Optional[List[DatabaseColumn]] = None,
-        window_id: str = "default"
+        window_id: str = "default",
+        user_id: Optional[int] = None,
+        schema_text: str = "",
+        query_db_result: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, str]]:
-        """构建算法特定的参数提取提示词"""
+        """
+        构建算法特定的参数提取提示词
+        
+        Args:
+            question: 用户问题
+            database_schema: 数据库模式信息（可选）
+            window_id: 窗口ID
+            user_id: 用户ID（可选）
+            schema_text: 格式化的候选表信息文本（由parameter_extractor统一获取）
+            query_db_result: NL2SQL查询结果（由parameter_extractor统一获取）
+        """
         pass
     
     @abstractmethod
@@ -57,13 +70,14 @@ class BaseAlgorithmExtractor(ABC):
         """验证和标准化参数"""
         pass
     
-    async def _get_candidate_tables_from_nl2sql(self, question: str, window_id: str = "default", user_id: int = None) -> tuple[str, Dict[str, Any]]:
+    async def _get_candidate_tables_from_nl2sql(self, question: str, window_id: str = "default", user_id: Optional[int] = None) -> tuple[str, Dict[str, Any]]:
         """
         从NL2SQL服务获取候选表信息和关键词
         
         Args:
             question: 用户问题
             window_id: 窗口ID
+            user_id: 用户ID（可选）
             
         Returns:
             tuple[str, Dict[str, Any]]: (格式化的候选表信息, 完整的查询结果)
