@@ -3,9 +3,9 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 
 # Vector Search and Embeddings
-sentence-transformers==2.2.2
-faiss-cpu==1.7.4
-huggingface_hub==0.19.4
+# sentence-transformers==2.2.2
+# faiss-cpu==1.7.4
+# huggingface_hub==0.19.4
 
 # LLM Integration (Volcengine Ark Runtime)
 # 注意: 如果安装失败，可以注释掉这行，系统会自动使用模拟客户端
