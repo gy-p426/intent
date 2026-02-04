@@ -3,9 +3,9 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 
 # Vector Search and Embeddings
-sentence-transformers==2.2.2
-faiss-cpu==1.7.4
-huggingface_hub==0.19.4
+# sentence-transformers==2.2.2
+# faiss-cpu==1.7.4
+# huggingface_hub==0.19.4
 
 # LLM Integration (Volcengine Ark Runtime)
 # 注意: 如果安装失败，可以注释掉这行，系统会自动使用模拟客户端
@@ -30,8 +30,8 @@ aiomysql==0.2.0
 pymysql==1.1.0
 
 # HTTP Client
-aiohttp==3.9.1
-httpx==0.25.2
+aiohttp==3.10.11
+httpx==0.28.1
 
 # Data Processing
 pandas==2.1.4
