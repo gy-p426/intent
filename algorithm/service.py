@@ -1048,7 +1048,7 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
             )
             
             try:
-                parameters = await self._extract_parameters_with_retry(question, algorithm_type, window_id, user_id)
+                parameters = await self._extract_parameters_with_retry(question, algorithm_type, user_id, window_id)
                 execution_time_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
                 
                 # 记录结构化日志
