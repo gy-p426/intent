@@ -1015,12 +1015,12 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
                         # 检查是否完成
                         if nl2sql_event.get('step') == 'sql_execution' and nl2sql_event.get('status') == 'completed':
                             logger.info("NL2SQL数据查询完成", extra={'trace_id': trace_id})
-                            yield AlgorithmResponse(
-                                step=StreamingStep.COMPLETED,
-                                status="completed",
-                                data= nl2sql_event,
-                                timestamp=datetime.utcnow()
-                            )
+                            # yield AlgorithmResponse(
+                            #     step=StreamingStep.COMPLETED,
+                            #     status="completed",
+                            #     data= nl2sql_event,
+                            #     timestamp=datetime.utcnow()
+                            # )
                             return
 
                         # 检查错误

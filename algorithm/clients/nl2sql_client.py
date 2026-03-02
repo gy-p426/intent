@@ -696,48 +696,60 @@ class NL2SQLClient(INL2SQLClient):
             
             # 获取服务URL
             base_url = await self._get_service_url()
-            session = await self._get_session()
-            url = f"{base_url.rstrip('/')}/api/query/query-stream"
             
-            logger.debug(f"发送SSE请求到: {url}")
-            logger.debug(f"请求参数: {self._sanitize_log_data(params)}")
+            # 为流式请求创建专用的超时配置
+            # sock_read: 两次数据接收之间的最大间隔（30秒）
+            # total: 设置为None，表示不限制总时长，只要持续有数据就不超时
+            stream_timeout = aiohttp.ClientTimeout(
+                total=None,  # 不限制总时长
+                connect=120,  # 连接超时30秒
+                sock_read=120  # 单次读取超时30秒（两次数据之间的间隔）
+            )
             
-            # 发送GET请求（SSE通常使用GET，参数通过query string传递）
-            async with session.get(url, params=params) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"NL2SQL /query-stream接口返回错误: {response.status} - {error_text}")
-                    raise ConnectionError(f"NL2SQL /query-stream接口错误: HTTP {response.status}")
+            # 为流式请求创建独立的session
+            async with aiohttp.ClientSession(timeout=stream_timeout) as stream_session:
+                url = f"{base_url.rstrip('/')}/api/query/query-stream"
                 
-                # 逐行读取SSE流
-                async for line in response.content:
-                    line_str = line.decode('utf-8').strip()
+                logger.debug(f"发送SSE请求到: {url}")
+                logger.debug(f"请求参数: {self._sanitize_log_data(params)}")
+                logger.debug(f"流式请求超时配置: total=None, connect=30s, sock_read=30s")
+                
+                # 发送GET请求（SSE通常使用GET，参数通过query string传递）
+                async with stream_session.get(url, params=params) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error(f"NL2SQL /query-stream接口返回错误: {response.status} - {error_text}")
+                        raise ConnectionError(f"NL2SQL /query-stream接口错误: HTTP {response.status}")
                     
-                    # 跳过空行和注释
-                    if not line_str or line_str.startswith(':'):
-                        continue
-                    
-                    # 解析SSE格式: data: {...}
-                    if line_str.startswith('data:'):
-                        data_str = line_str[5:].strip()
+                    # 逐行读取SSE流
+                    async for line in response.content:
+                        line_str = line.decode('utf-8').strip()
                         
-                        try:
-                            event_data = json.loads(data_str)
-                            logger.debug(f"收到NL2SQL流式事件: step={event_data.get('step')}, status={event_data.get('status')}")
-                            yield event_data
-                            
-                            # 如果是完成或错误事件，结束流
-                            if event_data.get('step') in ['completed', 'error']:
-                                logger.info(f"NL2SQL流式查询完成: step={event_data.get('step')}")
-                                break
-                                
-                        except json.JSONDecodeError as e:
-                            logger.warning(f"解析NL2SQL流式事件失败: {str(e)}, 数据: {data_str[:100]}")
+                        # 跳过空行和注释
+                        if not line_str or line_str.startswith(':'):
                             continue
-                
-                # 记录总耗时
-                total_time = (datetime.utcnow() - start_time).total_seconds() * 1000
-                logger.info(f"NL2SQL /query-stream接口调用完成，总耗时: {total_time:.2f}ms")
+                        
+                        # 解析SSE格式: data: {...}
+                        if line_str.startswith('data:'):
+                            data_str = line_str[5:].strip()
+                            
+                            try:
+                                event_data = json.loads(data_str)
+                                logger.debug(f"收到NL2SQL流式事件: step={event_data.get('step')}, status={event_data.get('status')}")
+                                yield event_data
+                                
+                                # 如果是完成或错误事件，结束流
+                                if event_data.get('step') in ['completed', 'error']:
+                                    logger.info(f"NL2SQL流式查询完成: step={event_data.get('step')}")
+                                    break
+                                    
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"解析NL2SQL流式事件失败: {str(e)}, 数据: {data_str[:100]}")
+                                continue
+                    
+                    # 记录总耗时
+                    total_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+                    logger.info(f"NL2SQL /query-stream接口调用完成，总耗时: {total_time:.2f}ms")
                 
         except aiohttp.ClientError as e:
             logger.error(f"NL2SQL /query-stream接口连接失败: {str(e)}")
