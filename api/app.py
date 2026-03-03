@@ -7,7 +7,7 @@ import logging
 import time
 from datetime import datetime
 from typing import Optional
-
+from api.favorite_api import router as favorite_router
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,7 +39,9 @@ class IntentRecognitionAPI:
             docs_url="/docs",
             redoc_url="/redoc"
         )
-        
+
+        self.app.include_router(favorite_router)
+
         # 添加CORS中间件
         self.app.add_middleware(
             CORSMiddleware,
