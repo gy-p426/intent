@@ -452,7 +452,7 @@ class Settings(BaseSettings):
     
     # Agent编排器配置（内部Agent化流程）
     enable_agent_orchestration: bool = Field(
-        default=False,
+        default=True,
         description="是否启用Agent编排器替代传统硬编码流程"
     )
     agent_orchestration_model: Optional[str] = Field(
