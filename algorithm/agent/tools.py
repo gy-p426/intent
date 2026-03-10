@@ -93,7 +93,7 @@ class CheckFollowUpTool(AgentTool):
                 },
             }
         except Exception as e:
-            logger.warning(f"追问判断失败: {e}")
+            logger.warning(f"追问判断失败 (window_id={window_id}): {e}")
             return {
                 "success": True,
                 "result": {
@@ -298,12 +298,13 @@ class ExecuteAlgorithmTool(AgentTool):
         "required": ["algorithm_type", "execution_result"],
     }
 
-    def __init__(self, algorithm_executor, data_processor, config_manager, retry_handler, retry_config):
+    def __init__(self, algorithm_executor, data_processor, config_manager, retry_handler, retry_config, async_task_timeout: int = 300):
         self._executor = algorithm_executor
         self._data_processor = data_processor
         self._config_manager = config_manager
         self._retry_handler = retry_handler
         self._retry_config = retry_config
+        self._async_task_timeout = async_task_timeout
 
     async def execute(self, **kwargs) -> Dict[str, Any]:
         import asyncio
@@ -317,6 +318,10 @@ class ExecuteAlgorithmTool(AgentTool):
         query_db_result = kwargs.get("query_db_result")
 
         try:
+            # 快速验证输入数据
+            if not execution_result:
+                return {"success": False, "error": "SQL查询结果为空，无法执行算法"}
+
             # 获取算法配置
             algorithm_config = self._config_manager.get_algorithm_config(algorithm_type)
             if not algorithm_config:
@@ -332,9 +337,6 @@ class ExecuteAlgorithmTool(AgentTool):
             )
 
             # 数据格式转换
-            if not execution_result:
-                return {"success": False, "error": "SQL查询结果为空，无法执行算法"}
-
             algorithm_request = await self._data_processor.convert_sql_result_to_algorithm_input(
                 execution_result, algorithm_config, parameters
             )
@@ -411,7 +413,7 @@ class ExecuteAlgorithmTool(AgentTool):
         import asyncio
 
         start_time = datetime.utcnow()
-        timeout_seconds = 300
+        timeout_seconds = self._async_task_timeout
 
         poll_generator = self._executor.poll_async_task(task_id)
         if asyncio.iscoroutine(poll_generator):

@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 # Agent推理最大轮次（安全阈值）
 MAX_AGENT_STEPS = 15
 
+# 上下文中仅作为元数据的键（不包含在最终响应中）
+_CONTEXT_METADATA_KEYS = {"question", "original_question", "window_id", "session_id", "user_id"}
+
 
 class AgentOrchestrator:
     """
@@ -61,8 +64,8 @@ class AgentOrchestrator:
         try:
             settings = self._service.settings
             self._llm_client = LLMClient(
-                model=getattr(settings, "agent_orchestration_model", None) or settings.ark_model,
-                timeout=getattr(settings, "agent_orchestration_timeout", None) or settings.ark_timeout,
+                model=settings.agent_orchestration_model or settings.ark_model,
+                timeout=settings.agent_orchestration_timeout or settings.ark_timeout,
             )
             logger.info("Agent编排器LLM客户端初始化成功")
         except Exception as e:
@@ -286,7 +289,7 @@ class AgentOrchestrator:
             status="completed",
             data={
                 "message": "Agent分析完成（达到最大步骤数）",
-                **{k: v for k, v in context_data.items() if k not in ("question", "window_id", "session_id", "user_id")},
+                **{k: v for k, v in context_data.items() if k not in _CONTEXT_METADATA_KEYS},
             },
             timestamp=datetime.utcnow(),
         )
@@ -409,8 +412,10 @@ class AgentOrchestrator:
             merged = result.get("merged_question", context.get("question"))
             context["merged_question"] = merged
             context["is_continuous"] = result.get("is_continuous", False)
-            # 更新当前使用的问题
+            # 追问合并后，后续工具应使用合并后的问题
+            # 同时保留原始问题在 context["original_question"]
             if result.get("is_continuous"):
+                context.setdefault("original_question", context.get("question"))
                 context["question"] = merged
 
         elif tool_name == "identify_algorithm":
