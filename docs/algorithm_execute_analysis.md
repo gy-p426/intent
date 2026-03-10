@@ -509,11 +509,72 @@ P3（低优先级/保持现状）：
 
 ---
 
-## 六、待确认事项
+## 六、Agent化改造实施方案（已实施）
 
-请确认以上流程总结和Agent化改造潜力分析是否准确完整，确认后将进行：
+### 6.1 实施概述
 
-1. **详细的Agent化改造技术方案设计**
-2. **Tool定义和Agent Prompt设计**
-3. **改造实施计划和分阶段里程碑**
-4. **兼容性方案**（确保改造期间现有接口正常工作）
+基于上述分析，已完成P0核心改造的实施。采用**ReAct（Reason-Act-Observe）范式**构建内部Agent编排器，替代传统的硬编码if-else流程。
+
+### 6.2 新增文件
+
+| 文件 | 说明 |
+|------|------|
+| `algorithm/agent/tools.py` | 工具基类（`AgentTool`）、7个具体工具实现、工具注册表（`ToolRegistry`） |
+| `algorithm/agent/prompts.py` | Agent系统提示词、ReAct推理模板、初始提问模板 |
+| `algorithm/agent/agent_orchestrator.py` | ReAct Agent编排器核心循环、上下文管理、结果构建 |
+
+### 6.3 修改文件
+
+| 文件 | 变更 |
+|------|------|
+| `algorithm/agent/__init__.py` | 新增 `AgentOrchestrator`、`ToolRegistry` 导出 |
+| `infrastructure/config.py` | 新增 `enable_agent_orchestration`、`agent_orchestration_model`、`agent_orchestration_timeout` 配置项 |
+| `algorithm/service.py` | 新增 `_process_with_agent_orchestration()` 方法和Agent编排器分支路由 |
+
+### 6.4 工具定义清单
+
+| 工具名称 | 封装的服务方法 | 对应流程步骤 |
+|---------|--------------|------------|
+| `check_follow_up` | `nl2sql_client.check_continuous_question()` | 追问判断（S1） |
+| `save_question` | `nl2sql_client.save_question()` | 会话保存 |
+| `identify_algorithm` | `router.route_to_algorithm()` | 算法类型识别（S2） |
+| `extract_parameters` | `parameter_extractor.extract_parameters()` | 参数提取（S3） |
+| `generate_and_execute_sql` | `nl2sql_client.query()` / `query_with_candidates()` | SQL生成与执行（S4） |
+| `execute_algorithm` | `algorithm_executor.execute_*()` | 算法执行（S6） |
+| `analyze_results` | `result_analyzer.analyze_algorithm_result()` | 结果分析（S7） |
+
+### 6.5 配置项
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `ENABLE_AGENT_ORCHESTRATION` | `false` | 启用Agent编排器替代传统流程 |
+| `AGENT_ORCHESTRATION_MODEL` | `""` | Agent编排器LLM模型（空则使用默认模型） |
+| `AGENT_ORCHESTRATION_TIMEOUT` | `120` | Agent编排器LLM调用超时时间（秒） |
+
+### 6.6 兼容性设计
+
+- **默认关闭**：`enable_agent_orchestration` 默认为 `false`，不影响现有流程
+- **三路分支**：API层无需修改，服务层根据配置自动路由：
+  - `agent_algorithm=true` → 外部Agent服务（不变）
+  - `enable_agent_orchestration=true` → 内部Agent编排器（新增）
+  - 默认 → 传统硬编码流程（不变）
+- **降级机制**：Agent编排器异常时自动降级到传统流程
+- **流式响应兼容**：Agent编排器输出的 `AlgorithmResponse` 与现有格式完全一致
+
+### 6.7 ReAct推理循环
+
+```
+用户问题 → Agent LLM推理
+    ↓
+Thought: 分析当前状态 → Action: 选择工具+参数
+    ↓
+执行工具 → Observation: 工具返回结果
+    ↓
+Agent LLM推理（携带历史） → 下一个 Thought+Action
+    ↓
+... 循环直到 Action = "finish" ...
+    ↓
+构建最终响应
+```
+
+最大推理轮次为15步，超过后自动结束并返回已收集的结果。
