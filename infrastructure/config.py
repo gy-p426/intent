@@ -2,6 +2,7 @@
 Configuration Manager
 使用pydantic-settings加载配置文件和环境变量
 """
+from typing import Optional
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
@@ -447,6 +448,21 @@ class Settings(BaseSettings):
     enable_agent_algorithm_analysis: bool = Field(
         default=True,
         description="是否启用Agent算法分析"
+    )
+    
+    # Agent编排器配置（内部Agent化流程）
+    enable_agent_orchestration: bool = Field(
+        default=False,
+        description="是否启用Agent编排器替代传统硬编码流程"
+    )
+    agent_orchestration_model: Optional[str] = Field(
+        default=None,
+        description="Agent编排器使用的LLM模型（None则使用ark_model）"
+    )
+    agent_orchestration_timeout: int = Field(
+        default=120,
+        description="Agent编排器LLM调用超时时间（秒）",
+        ge=10
     )
     
     # 文件存储配置

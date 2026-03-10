@@ -132,6 +132,9 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         from algorithm.manual_context import ManualContextStore
         self._manual_context_store = ManualContextStore(ttl_seconds=30 * 60)
 
+        # Agent编排器（懒初始化，仅在启用时创建）
+        self._agent_orchestrator = None
+
         logger.info("算法集成服务初始化完成")
     
     async def process_algorithm_request(
@@ -331,9 +334,15 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
 
             # === 判断是否使用Agent分析 ===
             if agent_algorithm:
-                # 使用Agent算法分析流程
+                # 使用Agent算法分析流程（外部Agent服务）
                 async for response in self._process_agent_algorithm(
                     merged_question, window_id, session_id, request_context
+                ):
+                    yield response
+            elif self.settings.enable_agent_orchestration:
+                # 使用内部Agent编排器（ReAct范式，动态规划执行步骤）
+                async for response in self._process_with_agent_orchestration(
+                    merged_question, window_id, session_id, request_context, user_id
                 ):
                     yield response
             else:
@@ -473,6 +482,67 @@ class AlgorithmIntegrationService(IAlgorithmIntegrationService):
         
         logger.info(f"[手动模式] 为算法类型 {algorithm_type.value} 构建的 required_columns: {required_columns}")
         return required_columns
+    
+    async def _process_with_agent_orchestration(
+        self,
+        question: str,
+        window_id: str,
+        session_id: str,
+        request_context: Dict[str, Any],
+        user_id: Optional[int] = None
+    ) -> AlgorithmResponseGenerator:
+        """
+        使用Agent编排器处理算法请求（ReAct范式）
+        
+        替代传统的硬编码if-else流程，由Agent动态规划和执行分析步骤。
+        Agent通过LLM推理决定调用哪些工具、按什么顺序执行。
+        
+        Args:
+            question: 用户查询（可能已经过追问合并）
+            window_id: 窗口ID
+            session_id: 会话ID
+            request_context: 请求上下文
+            user_id: 用户ID
+            
+        Yields:
+            AlgorithmResponse: 流式响应数据
+        """
+        from algorithm.models import AlgorithmResponse, StreamingStep
+        
+        trace_id = request_context.get('trace_id', 'unknown')
+        logger.info("使用Agent编排器处理请求", extra={'trace_id': trace_id})
+        
+        try:
+            # 懒初始化Agent编排器
+            if self._agent_orchestrator is None:
+                from algorithm.agent.agent_orchestrator import AgentOrchestrator
+                self._agent_orchestrator = AgentOrchestrator(self)
+                logger.info("Agent编排器初始化完成", extra={'trace_id': trace_id})
+            
+            # 委托给Agent编排器处理
+            async for response in self._agent_orchestrator.process(
+                question=question,
+                window_id=window_id,
+                session_id=session_id,
+                user_id=user_id,
+                request_context=request_context,
+            ):
+                yield response
+                
+        except Exception as e:
+            logger.error(f"Agent编排器处理失败: {str(e)}", extra={'trace_id': trace_id}, exc_info=True)
+            # 降级到传统流程
+            logger.info("Agent编排器失败，降级到传统流程", extra={'trace_id': trace_id})
+            yield AlgorithmResponse(
+                step=StreamingStep.INTENT_ANALYSIS,
+                status="processing",
+                data={"message": "Agent编排器异常，正在使用传统流程处理..."},
+                timestamp=datetime.utcnow()
+            )
+            async for response in self._process_with_error_handling(
+                question, window_id, session_id, request_context, user_id
+            ):
+                yield response
     
     async def _process_agent_algorithm(
         self,
