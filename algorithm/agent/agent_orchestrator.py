@@ -1,8 +1,10 @@
 """
 Agent编排器模块
 
-实现ReAct（Reason-Act-Observe）循环，驱动LLM进行多步推理和工具调用。
-替代传统的硬编码if-else流程编排，使分析流程更灵活、可扩展。
+支持两种编排模式:
+1. Plan-then-Execute（默认）: 单次LLM调用生成执行计划，然后确定性执行工具。
+   大幅减少LLM调用次数（从7-8次降至1次），将总耗时控制在1分钟以内。
+2. ReAct（备用）: 多轮LLM推理和工具调用，灵活但较慢。
 """
 
 import json
@@ -25,12 +27,25 @@ from algorithm.agent.prompts import (
     AGENT_SYSTEM_PROMPT,
     AGENT_OBSERVATION_TEMPLATE,
     AGENT_INITIAL_PROMPT,
+    PLAN_SYSTEM_PROMPT,
+    PLAN_USER_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
 
-# Agent推理最大轮次（安全阈值）
+# Agent推理最大轮次（安全阈值，仅ReAct模式使用）
 MAX_AGENT_STEPS = 15
+
+# 标准分析流水线：Plan-then-Execute模式的默认工具序列
+_STANDARD_PIPELINE = [
+    "check_follow_up",
+    "save_question",
+    "identify_algorithm",
+    "extract_parameters",
+    "generate_and_execute_sql",
+    "execute_algorithm",
+    "analyze_results",
+]
 
 # 上下文中仅作为元数据的键（不包含在最终响应中）
 _CONTEXT_METADATA_KEYS = {"question", "original_question", "window_id", "session_id", "user_id"}
@@ -40,8 +55,10 @@ class AgentOrchestrator:
     """
     Agent编排器
 
-    使用ReAct范式驱动LLM进行多步推理，根据用户问题动态规划
-    和执行分析工具，替代固定的流水线流程。
+    默认使用Plan-then-Execute模式：
+    1. 单次LLM调用生成工具执行计划（或使用默认标准流水线）
+    2. 按计划顺序确定性执行各工具，通过上下文传递数据
+    3. 大幅减少LLM调用次数，典型执行时间<1分钟
     """
 
     def __init__(self, service):
@@ -129,7 +146,191 @@ class AgentOrchestrator:
         request_context: Optional[Dict[str, Any]] = None,
     ) -> AlgorithmResponseGenerator:
         """
-        使用Agent编排执行算法分析流程
+        使用Plan-then-Execute模式执行算法分析流程。
+
+        1. 单次LLM调用生成工具执行计划（若失败则使用标准流水线）
+        2. 按计划顺序执行工具，上下文自动传递
+        3. 相比ReAct模式减少约6次LLM调用，显著降低总耗时
+
+        Args:
+            question: 用户问题
+            window_id: 窗口ID
+            session_id: 会话ID
+            user_id: 用户ID
+            request_context: 请求上下文
+
+        Yields:
+            AlgorithmResponse: 流式响应
+        """
+        trace_id = (request_context or {}).get("trace_id", "unknown")
+
+        # 通知客户端Agent编排开始
+        yield AlgorithmResponse(
+            step=StreamingStep.INTENT_ANALYSIS,
+            status="processing",
+            data={"message": "Agent正在规划执行步骤..."},
+            timestamp=datetime.utcnow(),
+        )
+
+        # 1. 生成执行计划（单次LLM调用）
+        plan = await self._generate_plan(question, window_id, session_id, user_id, trace_id)
+        logger.info(f"Agent执行计划: {plan}", extra={"trace_id": trace_id})
+
+        # 2. 初始化上下文
+        context_data: Dict[str, Any] = {
+            "question": question,
+            "window_id": window_id,
+            "session_id": session_id,
+            "user_id": user_id,
+        }
+
+        # 3. 按计划顺序执行工具
+        for step_num, tool_name in enumerate(plan, 1):
+            tool = self._registry.get(tool_name)
+            if not tool:
+                logger.warning(
+                    f"计划中的工具 '{tool_name}' 不存在，跳过",
+                    extra={"trace_id": trace_id},
+                )
+                continue
+
+            step_type = self._map_tool_to_streaming_step(tool_name)
+
+            # 流式通知客户端当前步骤
+            yield AlgorithmResponse(
+                step=step_type,
+                status="processing",
+                data={
+                    "message": f"步骤 {step_num}/{len(plan)}: {tool.description[:50]}...",
+                    "tool": tool_name,
+                },
+                timestamp=datetime.utcnow(),
+            )
+
+            # 注入上下文参数
+            enriched_params = self._enrich_params(tool_name, {}, context_data)
+
+            # 执行工具
+            try:
+                tool_result = await tool.execute(**enriched_params)
+            except Exception as e:
+                tool_result = {"success": False, "error": str(e)}
+                logger.error(
+                    f"工具 {tool_name} 执行异常: {e}",
+                    extra={"trace_id": trace_id},
+                )
+
+            # 更新上下文
+            self._update_context(tool_name, tool_result, context_data)
+
+            # 流式返回工具执行结果
+            yield AlgorithmResponse(
+                step=step_type,
+                status="completed" if tool_result.get("success") else "error",
+                data=self._build_step_response(tool_name, tool_result, context_data),
+                timestamp=datetime.utcnow(),
+            )
+
+            # 工具失败时继续后续步骤（和传统流程行为一致）
+            if not tool_result.get("success"):
+                logger.warning(
+                    f"工具 {tool_name} 执行失败，继续后续步骤",
+                    extra={"trace_id": trace_id},
+                )
+
+        # 4. 构建最终响应
+        summary = self._build_completion_summary(context_data)
+        final_data = self._build_final_response(context_data, summary)
+        yield AlgorithmResponse(
+            step=StreamingStep.COMPLETED,
+            status="completed",
+            data=final_data,
+            timestamp=datetime.utcnow(),
+        )
+
+    async def _generate_plan(
+        self,
+        question: str,
+        window_id: str,
+        session_id: str,
+        user_id: Optional[int],
+        trace_id: str,
+    ) -> List[str]:
+        """
+        单次LLM调用生成执行计划。
+
+        如果LLM调用失败或返回格式异常，回退到标准流水线。
+        """
+        try:
+            tools_desc = self._registry.get_tools_description()
+            system_prompt = PLAN_SYSTEM_PROMPT.format(tools_description=tools_desc)
+            user_prompt = PLAN_USER_PROMPT.format(
+                question=question,
+                window_id=window_id,
+                session_id=session_id,
+                user_id=user_id or 0,
+            )
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+
+            llm_response = await self._llm_client.chat_completion(messages)
+            parsed = self._parse_llm_response(llm_response)
+
+            if parsed and isinstance(parsed.get("plan"), list) and len(parsed["plan"]) > 0:
+                # 过滤出已注册的有效工具
+                valid_tools = {t.name for t in self._registry.list_tools()}
+                plan = [t for t in parsed["plan"] if t in valid_tools]
+                if plan:
+                    logger.info(
+                        f"LLM生成计划: {plan} (thought: {parsed.get('thought', '')[:80]})",
+                        extra={"trace_id": trace_id},
+                    )
+                    return plan
+
+            logger.warning(
+                f"LLM计划解析异常，使用标准流水线。原始响应: {llm_response[:200]}",
+                extra={"trace_id": trace_id},
+            )
+        except Exception as e:
+            logger.warning(
+                f"LLM计划生成失败: {e}，使用标准流水线",
+                extra={"trace_id": trace_id},
+            )
+
+        return self._get_default_pipeline()
+
+    def _get_default_pipeline(self) -> List[str]:
+        """返回默认标准流水线（仅包含已注册的工具）"""
+        valid_tools = {t.name for t in self._registry.list_tools()}
+        return [t for t in _STANDARD_PIPELINE if t in valid_tools]
+
+    def _build_completion_summary(self, context: Dict[str, Any]) -> str:
+        """根据上下文构建完成摘要"""
+        if context.get("readable_result"):
+            return str(context["readable_result"])
+
+        parts = []
+        if context.get("algorithm_type"):
+            parts.append(f"算法类型: {context['algorithm_type']}")
+        if context.get("data_rows_count"):
+            parts.append(f"处理数据: {context['data_rows_count']}行")
+        if context.get("algorithm_result"):
+            parts.append("算法执行完成")
+        return "分析完成。" + "；".join(parts) if parts else "分析完成"
+
+    async def process_react(
+        self,
+        question: str,
+        window_id: str,
+        session_id: str,
+        user_id: Optional[int] = None,
+        request_context: Optional[Dict[str, Any]] = None,
+    ) -> AlgorithmResponseGenerator:
+        """
+        使用ReAct模式执行算法分析流程（备用，多轮LLM推理，较慢但更灵活）
 
         Args:
             question: 用户问题

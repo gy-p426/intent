@@ -73,6 +73,7 @@ class AlgorithmAPIClient:
             'trend-service': self.call_trend_analysis_api,
             'causality-service': self.call_causality_api,
             'compare_proportion-service': self.call_compare_proportion_api,
+            'similarity-service': self.call_similarity_api,
         }
         
         # 静态URL映射（降级使用）
@@ -682,7 +683,24 @@ class AlgorithmAPIClient:
         }
         
         return await self.call_algorithm_api("association", endpoint, "POST", payload)
-    
+
+    async def call_similarity_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        调用相似度分析（DTW）API
+        
+        Args:
+            data_rows: 数据行列表
+            config: 算法配置，包含time_series1和time_series2等参数
+            
+        Returns:
+            Dict[str, Any]: 相似度分析结果
+        """
+        payload = {
+            "data_rows": data_rows,
+            "config": config
+        }
+        return await self.call_algorithm_api("similarity", "/api/dtw", "POST", payload)
+
     async def call_univariate_forecast_api(self, data_rows: List[Dict], config: Dict[str, Any]) -> Dict[str, Any]:
         """
         调用单变量预测API
